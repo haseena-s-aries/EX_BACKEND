@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace Ex_SurveyApp_api.Migrations
 {
     /// <inheritdoc />
-    public partial class exsurvey : Migration
+    public partial class ExSurvey : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)

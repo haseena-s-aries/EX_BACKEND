@@ -308,6 +308,51 @@ namespace Ex_SurveyApp_api.Migrations
                     b.ToTable("QcReviews");
                 });
 
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.RegistrationOtp", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(320)
+                        .HasColumnType("nvarchar(320)");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<bool>("IsVerified")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTimeOffset>("LastSentAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Otp")
+                        .IsRequired()
+                        .HasMaxLength(4)
+                        .HasColumnType("nchar(4)")
+                        .IsFixedLength();
+
+                    b.Property<int>("RequestedRole")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset?>("VerifiedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Email")
+                        .IsUnique();
+
+                    b.ToTable("RegistrationOtps");
+                });
+
             modelBuilder.Entity("Ex_SurveyApp_api.Models.ReportRevision", b =>
                 {
                     b.Property<Guid>("Id")
@@ -485,6 +530,15 @@ namespace Ex_SurveyApp_api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<DateTimeOffset?>("ApprovalReviewedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("ApprovalReviewedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("ApprovalStatus")
+                        .HasColumnType("int");
+
                     b.Property<string>("DisplayName")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -504,6 +558,8 @@ namespace Ex_SurveyApp_api.Migrations
                         .HasColumnType("int");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ApprovalReviewedByUserId");
 
                     b.HasIndex("Email")
                         .IsUnique();
@@ -687,6 +743,14 @@ namespace Ex_SurveyApp_api.Migrations
                         .HasForeignKey("SurveyorId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.User", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("ApprovalReviewedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 #pragma warning restore 612, 618
         }

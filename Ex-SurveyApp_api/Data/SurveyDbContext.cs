@@ -6,6 +6,7 @@ namespace Ex_SurveyApp_api.Data;
 public class SurveyDbContext(DbContextOptions<SurveyDbContext> options) : DbContext(options)
 {
     public DbSet<User> Users => Set<User>();
+    public DbSet<RegistrationOtp> RegistrationOtps => Set<RegistrationOtp>();
     public DbSet<Client> Clients => Set<Client>();
     public DbSet<Job> Jobs => Set<Job>();
     public DbSet<JobAssignment> JobAssignments => Set<JobAssignment>();
@@ -25,6 +26,15 @@ public class SurveyDbContext(DbContextOptions<SurveyDbContext> options) : DbCont
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<User>().HasIndex(x => x.Email).IsUnique();
+        modelBuilder.Entity<User>()
+            .HasOne<User>()
+            .WithMany()
+            .HasForeignKey(x => x.ApprovalReviewedByUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<RegistrationOtp>().HasIndex(x => x.Email).IsUnique();
+        modelBuilder.Entity<RegistrationOtp>().Property(x => x.Email).HasMaxLength(320);
+        modelBuilder.Entity<RegistrationOtp>().Property(x => x.DisplayName).HasMaxLength(200);
+        modelBuilder.Entity<RegistrationOtp>().Property(x => x.Otp).HasMaxLength(4).IsFixedLength();
         modelBuilder.Entity<Job>().HasIndex(x => x.JobNumber).IsUnique();
         modelBuilder.Entity<Job>().HasOne<Client>().WithMany().HasForeignKey(x => x.ClientId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<JobAssignment>().HasIndex(x => new { x.JobId, x.UserId, x.Role }).IsUnique();

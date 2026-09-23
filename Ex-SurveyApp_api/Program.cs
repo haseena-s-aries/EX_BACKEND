@@ -50,6 +50,8 @@ if (string.IsNullOrWhiteSpace(jwtKey) || Encoding.UTF8.GetByteCount(jwtKey) < 32
 builder.Services.AddSingleton(new JwtSettings(jwtIssuer, jwtAudience, jwtKey));
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
 builder.Services.AddSingleton<TokenService>();
+builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("EmailSettings"));
+builder.Services.AddScoped<IEmailService, SmtpEmailService>();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -76,8 +78,9 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
                 var db = context.HttpContext.RequestServices.GetRequiredService<SurveyDbContext>();
                 var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id);
-                if (user is null || !user.IsActive || !context.Principal!.IsInRole(user.Role.ToString()))
-                    context.Fail("User is inactive or role has changed.");
+                if (user is null || !user.IsActive || user.ApprovalStatus != ApprovalStatus.Approved ||
+                    !context.Principal!.IsInRole(user.Role.ToString()))
+                    context.Fail("User is inactive, unapproved, or role has changed.");
             }
         };
     });
@@ -95,28 +98,44 @@ var app = builder.Build();
 
 var adminEmail = app.Configuration["BootstrapAdmin:Email"];
 var adminPassword = app.Configuration["BootstrapAdmin:Password"];
+var adminDisplayName = app.Configuration["BootstrapAdmin:DisplayName"] ?? "Administrator";
 if (string.IsNullOrWhiteSpace(adminEmail) != string.IsNullOrWhiteSpace(adminPassword))
     throw new InvalidOperationException("BootstrapAdmin:Email and BootstrapAdmin:Password must both be set.");
 if (!string.IsNullOrWhiteSpace(adminEmail) && !string.IsNullOrWhiteSpace(adminPassword))
 {
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<SurveyDbContext>();
-    if (!await db.Users.AnyAsync(x => x.Role == UserRole.Admin))
+    var normalizedAdminEmail = adminEmail.Trim().ToLowerInvariant();
+    var admin = await db.Users.FirstOrDefaultAsync(x => x.Email == normalizedAdminEmail);
+    var passwordHasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher<User>>();
+    if (admin is null)
     {
-        if (await db.Users.AnyAsync(x => x.Email == adminEmail.Trim().ToLowerInvariant()))
-            throw new InvalidOperationException("Bootstrap admin email is already registered.");
-        var admin = new User
+        admin = new User
         {
-            Email = adminEmail.Trim().ToLowerInvariant(),
-            DisplayName = "Administrator",
+            Email = normalizedAdminEmail,
+            DisplayName = adminDisplayName.Trim(),
             PasswordHash = string.Empty,
-            Role = UserRole.Admin
+            Role = UserRole.Admin,
+            ApprovalStatus = ApprovalStatus.Approved
         };
-        admin.PasswordHash = scope.ServiceProvider.GetRequiredService<IPasswordHasher<User>>()
-            .HashPassword(admin, adminPassword);
+        admin.PasswordHash = passwordHasher.HashPassword(admin, adminPassword);
         db.Users.Add(admin);
-        await db.SaveChangesAsync();
     }
+    else if (admin.Role != UserRole.Admin)
+    {
+        throw new InvalidOperationException("Bootstrap admin email belongs to a non-admin user.");
+    }
+    else
+    {
+        admin.DisplayName = adminDisplayName.Trim();
+        admin.IsActive = true;
+        admin.ApprovalStatus = ApprovalStatus.Approved;
+        if (passwordHasher.VerifyHashedPassword(admin, admin.PasswordHash, adminPassword) ==
+            PasswordVerificationResult.Failed)
+            admin.PasswordHash = passwordHasher.HashPassword(admin, adminPassword);
+    }
+
+    await db.SaveChangesAsync();
 }
 
 // Configure the HTTP request pipeline.

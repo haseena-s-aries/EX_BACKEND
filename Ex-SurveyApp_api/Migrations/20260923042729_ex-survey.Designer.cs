@@ -13,7 +13,7 @@ namespace Ex_SurveyApp_api.Migrations
 {
     [DbContext(typeof(SurveyDbContext))]
     [Migration("20260923042729_ex-survey")]
-    partial class exsurvey
+    partial class ExSurvey
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)

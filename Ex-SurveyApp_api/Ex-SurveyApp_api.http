@@ -1,12 +1,41 @@
 @Ex_SurveyApp_api_HostAddress = http://localhost:5235
 @token = paste-access-token-here
 
-POST {{Ex_SurveyApp_api_HostAddress}}/api/auth/register
+POST {{Ex_SurveyApp_api_HostAddress}}/api/auth/register/send-otp
 Content-Type: application/json
 
 {
   "email": "client@example.com",
-  "displayName": "Example Client",
+  "name": "Example Client",
+  "role": "Client"
+}
+
+###
+
+POST {{Ex_SurveyApp_api_HostAddress}}/api/auth/register/verify-otp
+Content-Type: application/json
+
+{
+  "email": "client@example.com",
+  "otp": "0000"
+}
+
+###
+
+POST {{Ex_SurveyApp_api_HostAddress}}/api/auth/register/resend-otp
+Content-Type: application/json
+
+{
+  "email": "client@example.com"
+}
+
+###
+
+POST {{Ex_SurveyApp_api_HostAddress}}/api/auth/register/complete
+Content-Type: application/json
+
+{
+  "email": "client@example.com",
   "password": "example-password-123"
 }
 
