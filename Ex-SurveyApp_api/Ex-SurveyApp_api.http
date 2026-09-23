@@ -1,0 +1,45 @@
+@Ex_SurveyApp_api_HostAddress = http://localhost:5235
+@token = paste-access-token-here
+
+POST {{Ex_SurveyApp_api_HostAddress}}/api/auth/register
+Content-Type: application/json
+
+{
+  "email": "client@example.com",
+  "displayName": "Example Client",
+  "password": "example-password-123"
+}
+
+###
+
+POST {{Ex_SurveyApp_api_HostAddress}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "client@example.com",
+  "password": "example-password-123"
+}
+
+###
+
+GET {{Ex_SurveyApp_api_HostAddress}}/api/auth/me
+Authorization: Bearer {{token}}
+Accept: application/json
+
+###
+
+GET {{Ex_SurveyApp_api_HostAddress}}/api/clients
+Authorization: Bearer {{token}}
+Accept: application/json
+
+###
+
+POST {{Ex_SurveyApp_api_HostAddress}}/api/clients
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "Example Client"
+}
+
+###

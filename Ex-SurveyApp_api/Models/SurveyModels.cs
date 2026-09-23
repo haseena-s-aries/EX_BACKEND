@@ -1,0 +1,167 @@
+namespace Ex_SurveyApp_api.Models;
+
+public enum UserRole { Admin, Manager, Qc, Surveyor, Client }
+public enum JobStatus { Draft, InProgress, Submitted, InReview, Approved, Closed }
+public enum InspectionType { Visual, Close, Detailed }
+public enum SurveyStatus { Draft, Submitted, Returned, Approved }
+public enum FindingStatus { Open, RectificationSubmitted, Verified, Closed }
+public enum FileCategory { Drawing, Checklist, EquipmentPhoto, FindingPhoto, RepairProof, Certificate, Report }
+
+public class User
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public required string Email { get; set; }
+    public required string DisplayName { get; set; }
+    public required string PasswordHash { get; set; }
+    public UserRole Role { get; set; }
+    public bool IsActive { get; set; } = true;
+}
+
+public class Client
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public required string Name { get; set; }
+    public string? ContactEmail { get; set; }
+    public Guid? LogoFileId { get; set; }
+}
+
+public class Job
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid ClientId { get; set; }
+    public required string JobNumber { get; set; }
+    public required string Title { get; set; }
+    public string? Uid { get; set; }
+    public int Revision { get; set; }
+    public JobStatus Status { get; set; } = JobStatus.Draft;
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
+public class JobAssignment
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid JobId { get; set; }
+    public Guid UserId { get; set; }
+    public UserRole Role { get; set; }
+}
+
+public class Area
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid JobId { get; set; }
+    public required string Name { get; set; }
+    public string? Description { get; set; }
+}
+
+public class Equipment
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid AreaId { get; set; }
+    public required string TagNumber { get; set; }
+    public string? Description { get; set; }
+    public string? Manufacturer { get; set; }
+    public string? Model { get; set; }
+    public string? SerialNumber { get; set; }
+    public string? ExMarking { get; set; }
+    public string? RfidTag { get; set; }
+}
+
+public class ChecklistTemplate
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public required string Name { get; set; }
+    public InspectionType InspectionType { get; set; }
+    public int Version { get; set; } = 1;
+    public bool IsActive { get; set; } = true;
+}
+
+public class ChecklistQuestion
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid ChecklistTemplateId { get; set; }
+    public required string Text { get; set; }
+    public int SortOrder { get; set; }
+    public bool IsRequired { get; set; } = true;
+}
+
+public class SurveySession
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid JobId { get; set; }
+    public Guid EquipmentId { get; set; }
+    public Guid SurveyorId { get; set; }
+    public Guid ChecklistTemplateId { get; set; }
+    public SurveyStatus Status { get; set; } = SurveyStatus.Draft;
+    public DateTimeOffset? SubmittedAt { get; set; }
+}
+
+public class SurveyAnswer
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid SurveySessionId { get; set; }
+    public Guid ChecklistQuestionId { get; set; }
+    public string? Value { get; set; }
+    public string? Comment { get; set; }
+}
+
+public class Finding
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid SurveySessionId { get; set; }
+    public required string Observation { get; set; }
+    public string? Recommendation { get; set; }
+    public string? Severity { get; set; }
+    public FindingStatus Status { get; set; } = FindingStatus.Open;
+}
+
+public class SurveyFile
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid JobId { get; set; }
+    public Guid? AreaId { get; set; }
+    public Guid? EquipmentId { get; set; }
+    public Guid? FindingId { get; set; }
+    public FileCategory Category { get; set; }
+    public required string FileName { get; set; }
+    public required string StorageKey { get; set; }
+    public required string ContentType { get; set; }
+    public Guid UploadedById { get; set; }
+    public DateTimeOffset UploadedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
+public class QcReview
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid SurveySessionId { get; set; }
+    public Guid ReviewerId { get; set; }
+    public bool Approved { get; set; }
+    public string? Comment { get; set; }
+    public DateTimeOffset ReviewedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
+public class ReportRevision
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid JobId { get; set; }
+    public int Revision { get; set; }
+    public Guid? FileId { get; set; }
+    public DateTimeOffset GeneratedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
+public class AuditLog
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid? ActorId { get; set; }
+    public required string EntityType { get; set; }
+    public Guid EntityId { get; set; }
+    public required string Action { get; set; }
+    public DateTimeOffset OccurredAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
+public class SyncBatch
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid SurveyorId { get; set; }
+    public required string ClientBatchId { get; set; }
+    public DateTimeOffset ReceivedAt { get; set; } = DateTimeOffset.UtcNow;
+}
