@@ -208,6 +208,33 @@ public class AuthController(
         return StatusCode(StatusCodes.Status201Created, ToResponse(result.User!));
     }
 
+    [HttpGet("users")]
+    [Authorize(Roles = "Admin,Manager")]
+    public async Task<ActionResult<IEnumerable<UserResponse>>> GetUsers(
+        [FromQuery] string? status, CancellationToken cancellationToken)
+    {
+        if (!Enum.TryParse<ApprovalStatus>(status, ignoreCase: true, out var approvalStatus) ||
+            approvalStatus is not (ApprovalStatus.Approved or ApprovalStatus.Rejected))
+        {
+            return BadRequest(new
+            {
+                error = "The status query parameter is required and must be Approved or Rejected."
+            });
+        }
+
+        var query = db.Users.AsNoTracking().Where(x => x.ApprovalStatus == approvalStatus);
+        if (User.IsInRole(nameof(UserRole.Manager)))
+            query = query.Where(x => x.Role != UserRole.Admin && x.Role != UserRole.Manager);
+
+        var users = await query
+            .OrderBy(x => x.DisplayName)
+            .ThenBy(x => x.Email)
+            .Select(x => new UserResponse(x.Id, x.Email, x.DisplayName, x.Role, x.ApprovalStatus))
+            .ToListAsync(cancellationToken);
+
+        return Ok(users);
+    }
+
     [HttpGet("approvals/pending")]
     [Authorize(Roles = "Admin,Manager")]
     public async Task<ActionResult<IEnumerable<PendingApprovalResponse>>> GetPendingApprovals(
