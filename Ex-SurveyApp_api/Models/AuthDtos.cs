@@ -16,7 +16,7 @@ public record ResendRegistrationOtpRequest(
 
 public record CompleteRegistrationRequest(
     [Required, EmailAddress, StringLength(320)] string Email,
-    [Required, StringLength(128, MinimumLength = 12)] string Password);
+    [Required] string Password);
 
 public record LoginRequest(
     [Required, EmailAddress] string Email,
@@ -25,7 +25,7 @@ public record LoginRequest(
 public record CreateUserRequest(
     [Required, EmailAddress, StringLength(320)] string Email,
     [Required, StringLength(200)] string DisplayName,
-    [Required, StringLength(128, MinimumLength = 12)] string Password,
+    [Required] string Password,
     [Required] UserRole Role);
 
 public record UserResponse(

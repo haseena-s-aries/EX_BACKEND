@@ -14,7 +14,7 @@
 - `POST /api/auth/register/send-otp` accepts `name`, `email`, and `role`, stores them with a four-digit OTP, and sends it by SMTP. Valid roles are `Admin`, `Manager`, `Qc`, `Surveyor`, and `Client`. The OTP expires after 10 minutes.
 - `POST /api/auth/register/verify-otp` accepts `email` and `otp`.
 - `POST /api/auth/register/resend-otp` accepts `email`. Resending is limited to once every 60 seconds.
-- `POST /api/auth/register/complete` accepts the verified `email` and a password of at least 12 characters. It creates a user with the role requested at the OTP step, sets Pending approval, and does not issue a JWT.
+- `POST /api/auth/register/complete` accepts the verified `email` and any non-empty password. It creates a user with the role requested at the OTP step, sets Pending approval, and does not issue a JWT.
 - `POST /api/auth/login` accepts `email` and `password` and returns a JWT.
 - `GET /api/auth/me` requires `Authorization: Bearer <token>`.
 - `POST /api/auth/users` lets an Admin create a user with a selected `role`: `Admin`, `Manager`, `Qc`, `Surveyor`, or `Client`.
