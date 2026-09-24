@@ -72,3 +72,26 @@ Content-Type: application/json
 }
 
 ###
+
+GET {{Ex_SurveyApp_api_HostAddress}}/api/projects
+Authorization: Bearer {{token}}
+Accept: application/json
+
+###
+
+POST {{Ex_SurveyApp_api_HostAddress}}/api/projects
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "projectName": "Example Ex Survey",
+  "sector": "Marine",
+  "jobNo": "EX-001",
+  "location": "Mumbai",
+  "vesselOrSiteName": "Example Vessel",
+  "assignedSurveyorId": "00000000-0000-0000-0000-000000000000",
+  "assignedQcId": "00000000-0000-0000-0000-000000000000",
+  "assignedClientId": "00000000-0000-0000-0000-000000000000"
+}
+
+###

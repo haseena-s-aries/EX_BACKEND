@@ -278,6 +278,130 @@ namespace Ex_SurveyApp_api.Migrations
                     b.ToTable("JobAssignments");
                 });
 
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.Project", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AssignedClientId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AssignedQcId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AssignedSurveyorId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("JobNo")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Location")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<string>("ProjectName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("Sector")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("VesselOrSiteName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AssignedClientId");
+
+                    b.HasIndex("AssignedQcId");
+
+                    b.HasIndex("AssignedSurveyorId");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("JobNo")
+                        .IsUnique();
+
+                    b.ToTable("Projects");
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.ProjectArea", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("AreaName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProjectId", "AreaName")
+                        .IsUnique();
+
+                    b.ToTable("ProjectAreas");
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.ProjectAreaPhoto", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<string>("FilePath")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<Guid>("ProjectAreaId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("UploadedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("UploadedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProjectAreaId");
+
+                    b.HasIndex("UploadedByUserId");
+
+                    b.ToTable("ProjectAreaPhotos");
+                });
+
             modelBuilder.Entity("Ex_SurveyApp_api.Models.QcReview", b =>
                 {
                     b.Property<Guid>("Id")
@@ -635,6 +759,57 @@ namespace Ex_SurveyApp_api.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.Project", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("AssignedClientId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("AssignedQcId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("AssignedSurveyorId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.ProjectArea", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.Project", null)
+                        .WithMany("Areas")
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.ProjectAreaPhoto", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.ProjectArea", null)
+                        .WithMany("Photos")
+                        .HasForeignKey("ProjectAreaId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("UploadedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Ex_SurveyApp_api.Models.QcReview", b =>
                 {
                     b.HasOne("Ex_SurveyApp_api.Models.User", null)
@@ -751,6 +926,16 @@ namespace Ex_SurveyApp_api.Migrations
                         .WithMany()
                         .HasForeignKey("ApprovalReviewedByUserId")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.Project", b =>
+                {
+                    b.Navigation("Areas");
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.ProjectArea", b =>
+                {
+                    b.Navigation("Photos");
                 });
 #pragma warning restore 612, 618
         }

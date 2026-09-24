@@ -7,6 +7,9 @@ public class SurveyDbContext(DbContextOptions<SurveyDbContext> options) : DbCont
 {
     public DbSet<User> Users => Set<User>();
     public DbSet<RegistrationOtp> RegistrationOtps => Set<RegistrationOtp>();
+    public DbSet<Project> Projects => Set<Project>();
+    public DbSet<ProjectArea> ProjectAreas => Set<ProjectArea>();
+    public DbSet<ProjectAreaPhoto> ProjectAreaPhotos => Set<ProjectAreaPhoto>();
     public DbSet<Client> Clients => Set<Client>();
     public DbSet<Job> Jobs => Set<Job>();
     public DbSet<JobAssignment> JobAssignments => Set<JobAssignment>();
@@ -35,6 +38,23 @@ public class SurveyDbContext(DbContextOptions<SurveyDbContext> options) : DbCont
         modelBuilder.Entity<RegistrationOtp>().Property(x => x.Email).HasMaxLength(320);
         modelBuilder.Entity<RegistrationOtp>().Property(x => x.DisplayName).HasMaxLength(200);
         modelBuilder.Entity<RegistrationOtp>().Property(x => x.Otp).HasMaxLength(4).IsFixedLength();
+        modelBuilder.Entity<Project>().Property(x => x.ProjectName).HasMaxLength(200);
+        modelBuilder.Entity<Project>().Property(x => x.Sector).HasMaxLength(150);
+        modelBuilder.Entity<Project>().Property(x => x.JobNo).HasMaxLength(100);
+        modelBuilder.Entity<Project>().Property(x => x.Location).HasMaxLength(300);
+        modelBuilder.Entity<Project>().Property(x => x.VesselOrSiteName).HasMaxLength(200);
+        modelBuilder.Entity<Project>().HasIndex(x => x.JobNo).IsUnique();
+        modelBuilder.Entity<Project>().HasOne<User>().WithMany().HasForeignKey(x => x.AssignedSurveyorId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<Project>().HasOne<User>().WithMany().HasForeignKey(x => x.AssignedQcId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<Project>().HasOne<User>().WithMany().HasForeignKey(x => x.AssignedClientId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<Project>().HasOne<User>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<ProjectArea>().Property(x => x.AreaName).HasMaxLength(200);
+        modelBuilder.Entity<ProjectArea>().HasIndex(x => new { x.ProjectId, x.AreaName }).IsUnique();
+        modelBuilder.Entity<ProjectArea>().HasOne<Project>().WithMany(x => x.Areas).HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<ProjectAreaPhoto>().Property(x => x.FileName).HasMaxLength(255);
+        modelBuilder.Entity<ProjectAreaPhoto>().Property(x => x.FilePath).HasMaxLength(500);
+        modelBuilder.Entity<ProjectAreaPhoto>().HasOne<ProjectArea>().WithMany(x => x.Photos).HasForeignKey(x => x.ProjectAreaId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<ProjectAreaPhoto>().HasOne<User>().WithMany().HasForeignKey(x => x.UploadedByUserId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<Job>().HasIndex(x => x.JobNumber).IsUnique();
         modelBuilder.Entity<Job>().HasOne<Client>().WithMany().HasForeignKey(x => x.ClientId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<JobAssignment>().HasIndex(x => new { x.JobId, x.UserId, x.Role }).IsUnique();
