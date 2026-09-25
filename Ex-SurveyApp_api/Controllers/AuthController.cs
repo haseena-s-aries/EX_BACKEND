@@ -222,9 +222,12 @@ public class AuthController(
             });
         }
 
-        var query = db.Users.AsNoTracking().Where(x =>
-    x.ApprovalStatus == approvalStatus &&
-    x.IsActive);
+
+
+        var query = db.Users.AsNoTracking()
+    .Where(x => x.IsActive && x.ApprovalStatus == approvalStatus);
+
+
         if (User.IsInRole(nameof(UserRole.Manager)))
             query = query.Where(x => x.Role != UserRole.Admin && x.Role != UserRole.Manager);
 
@@ -243,7 +246,7 @@ public class AuthController(
         CancellationToken cancellationToken)
     {
         var users = await db.Users.AsNoTracking()
-            .Where(x => x.ApprovalStatus == ApprovalStatus.Pending)
+           .Where(x => x.IsActive && x.ApprovalStatus == ApprovalStatus.Pending)
             .OrderBy(x => x.DisplayName)
             .Select(x => new PendingApprovalResponse(x.Id, x.Email, x.DisplayName, x.Role, x.ApprovalStatus))
             .ToListAsync(cancellationToken);
