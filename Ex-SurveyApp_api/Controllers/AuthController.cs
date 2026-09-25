@@ -280,7 +280,7 @@ public class AuthController(
         await db.SaveChangesAsync(cancellationToken);
         return Ok(ToResponse(user));
     }
-
+    //SaveChangesEventArgs success
     private async Task<IActionResult> GenerateSaveAndSendOtp(
         RegistrationOtp registration, DateTimeOffset now, CancellationToken cancellationToken)
     {
