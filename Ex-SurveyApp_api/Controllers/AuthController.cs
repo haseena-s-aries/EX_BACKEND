@@ -222,7 +222,9 @@ public class AuthController(
             });
         }
 
-        var query = db.Users.AsNoTracking().Where(x => x.ApprovalStatus == approvalStatus);
+        var query = db.Users.AsNoTracking().Where(x =>
+    x.ApprovalStatus == approvalStatus &&
+    x.IsActive);
         if (User.IsInRole(nameof(UserRole.Manager)))
             query = query.Where(x => x.Role != UserRole.Admin && x.Role != UserRole.Manager);
 
