@@ -239,7 +239,9 @@ public class ProjectController(
             return BadRequest(new { error = $"A maximum of {photoStorage.MaxFilesPerRequest} images can be uploaded at once." });
         if (!await CanAccessProject(projectId, allowSurveyorWrite: true, cancellationToken))
             return NotFound(new { error = "Project was not found or is not assigned to you." });
-        if (!await db.ProjectAreas.AnyAsync(x => x.Id == areaId && x.ProjectId == projectId, cancellationToken))
+        var area = await db.ProjectAreas.FirstOrDefaultAsync(
+            x => x.Id == areaId && x.ProjectId == projectId, cancellationToken);
+        if (area is null)
             return NotFound(new { error = "Project area was not found." });
 
         var storedFiles = new List<StoredProjectPhoto>();
@@ -269,6 +271,12 @@ public class ProjectController(
             UploadedAt = now
         }).ToList();
         db.ProjectAreaPhotos.AddRange(photos);
+        area.LayoutImagePath ??= await db.ProjectAreaPhotos.AsNoTracking()
+            .Where(x => x.ProjectAreaId == areaId)
+            .OrderBy(x => x.UploadedAt)
+            .ThenBy(x => x.Id)
+            .Select(x => x.FilePath)
+            .FirstOrDefaultAsync(cancellationToken) ?? photos[0].FilePath;
         await TouchProject(projectId, cancellationToken);
         try
         {
@@ -327,13 +335,25 @@ public class ProjectController(
     {
         if (!await CanAccessProject(projectId, allowSurveyorWrite: true, cancellationToken))
             return NotFound(new { error = "Project was not found or is not assigned to you." });
-        if (!await db.ProjectAreas.AnyAsync(x => x.Id == areaId && x.ProjectId == projectId, cancellationToken))
+        var area = await db.ProjectAreas.FirstOrDefaultAsync(
+            x => x.Id == areaId && x.ProjectId == projectId, cancellationToken);
+        if (area is null)
             return NotFound(new { error = "Project area was not found." });
 
         var photo = await db.ProjectAreaPhotos.FirstOrDefaultAsync(
             x => x.Id == photoId && x.ProjectAreaId == areaId, cancellationToken);
         if (photo is null)
             return NotFound(new { error = "Project area photo was not found." });
+
+        if (area.LayoutImagePath == photo.FilePath)
+        {
+            area.LayoutImagePath = await db.ProjectAreaPhotos.AsNoTracking()
+                .Where(x => x.ProjectAreaId == areaId && x.Id != photoId)
+                .OrderBy(x => x.UploadedAt)
+                .ThenBy(x => x.Id)
+                .Select(x => x.FilePath)
+                .FirstOrDefaultAsync(cancellationToken);
+        }
 
         db.ProjectAreaPhotos.Remove(photo);
         await TouchProject(projectId, cancellationToken);

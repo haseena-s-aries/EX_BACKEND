@@ -19,6 +19,7 @@ public class AuthController(
     IPasswordHasher<User> passwordHasher,
     TokenService tokenService,
     IEmailService emailService,
+    IConfiguration configuration,
     ILogger<AuthController> logger) : ControllerBase
 {
     private static readonly TimeSpan OtpLifetime = TimeSpan.FromMinutes(10);
@@ -222,7 +223,8 @@ public class AuthController(
             });
         }
 
-        var query = db.Users.AsNoTracking().Where(x => x.ApprovalStatus == approvalStatus);
+        var query = db.Users.AsNoTracking()
+            .Where(x => x.IsActive && x.ApprovalStatus == approvalStatus);
         if (User.IsInRole(nameof(UserRole.Manager)))
             query = query.Where(x => x.Role != UserRole.Admin && x.Role != UserRole.Manager);
 
@@ -233,6 +235,132 @@ public class AuthController(
             .ToListAsync(cancellationToken);
 
         return Ok(users);
+    }
+
+    [HttpGet("users/approved")]
+    [Authorize(Roles = "Admin,Manager")]
+    public async Task<ActionResult<IEnumerable<ManagedUserResponse>>> GetApprovedUsers(
+        CancellationToken cancellationToken) =>
+        Ok(await GetManagedUsers(ApprovalStatus.Approved, cancellationToken));
+
+    [HttpGet("users/rejected")]
+    [Authorize(Roles = "Admin,Manager")]
+    public async Task<ActionResult<IEnumerable<ManagedUserResponse>>> GetRejectedUsers(
+        CancellationToken cancellationToken) =>
+        Ok(await GetManagedUsers(ApprovalStatus.Rejected, cancellationToken));
+
+    [HttpPut("users/{userId:guid}/role")]
+    [Authorize(Roles = "Admin,Manager")]
+    public async Task<ActionResult<ManagedUserResponse>> ChangeUserRole(
+        Guid userId, ChangeUserRoleRequest request, CancellationToken cancellationToken)
+    {
+        if (request.Role is null || !Enum.IsDefined(request.Role.Value))
+            return BadRequest(new { error = "Role must be Admin, Manager, Qc, Surveyor, or Client." });
+
+        var user = await db.Users.FirstOrDefaultAsync(x => x.Id == userId && x.IsActive, cancellationToken);
+        if (user is null)
+            return NotFound(new { error = "Active user was not found." });
+
+        if (User.IsInRole(nameof(UserRole.Manager)) &&
+            (user.Role is UserRole.Admin or UserRole.Manager ||
+             request.Role.Value is UserRole.Admin or UserRole.Manager))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                error = "Managers cannot change Admin or Manager users or assign the Admin or Manager role."
+            });
+        }
+
+        user.Role = request.Role.Value;
+        await db.SaveChangesAsync(cancellationToken);
+        return Ok(ToManagedResponse(user));
+    }
+
+    [HttpDelete("users/{userId:guid}")]
+    [Authorize(Roles = "Admin,Manager")]
+    public async Task<IActionResult> DeleteUser(Guid userId, CancellationToken cancellationToken)
+    {
+        var currentUserId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        if (userId == currentUserId)
+            return StatusCode(StatusCodes.Status403Forbidden,
+                new { error = "You cannot delete your own account." });
+
+        var user = await db.Users.FirstOrDefaultAsync(x => x.Id == userId, cancellationToken);
+        if (user is null)
+            return NotFound(new { error = "User was not found." });
+
+        var systemAdministratorEmail = configuration["BootstrapAdmin:Email"];
+        if (!string.IsNullOrWhiteSpace(systemAdministratorEmail) &&
+            string.Equals(user.Email, NormalizeEmail(systemAdministratorEmail), StringComparison.OrdinalIgnoreCase))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden,
+                new { error = "The main System Administrator account cannot be deleted." });
+        }
+
+        if (user.ApprovalStatus is not (ApprovalStatus.Approved or ApprovalStatus.Rejected))
+            return Conflict(new { error = "Only approved or rejected users can be deleted." });
+
+        if (User.IsInRole(nameof(UserRole.Manager)) && user.Role is UserRole.Admin or UserRole.Manager)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden,
+                new { error = "Managers cannot delete Admin or Manager users." });
+        }
+
+        var dependencies = await GetUserDeleteDependencies(userId, cancellationToken);
+        if (dependencies.Count > 0)
+        {
+            logger.LogWarning(
+                "User {UserId} could not be deleted because of dependencies: {Dependencies}",
+                userId, string.Join(", ", dependencies));
+            return Conflict(new
+            {
+                error = "User cannot be deleted because important business records reference this account.",
+                dependencies
+            });
+        }
+
+        var safeAssignments = await db.JobAssignments
+            .Where(x => x.UserId == userId)
+            .ToListAsync(cancellationToken);
+
+        db.JobAssignments.RemoveRange(safeAssignments);
+        db.Users.Remove(user);
+
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex)
+        {
+            var detail = ex.GetBaseException().Message;
+            logger.LogError(ex, "Database rejected deletion of user {UserId}: {Detail}", userId, detail);
+            return Conflict(new
+            {
+                error = "User could not be deleted because the database still has a related record."
+            });
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogError(ex, "Unexpected error while deleting user {UserId}", userId);
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                error = "User deletion failed.",
+                detail = ex.Message
+            });
+        }
+
+        db.ChangeTracker.Clear();
+        if (await db.Users.AsNoTracking().AnyAsync(x => x.Id == userId, cancellationToken))
+        {
+            logger.LogError("User {UserId} still exists after a successful delete operation", userId);
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                new { error = "The database did not remove the user." });
+        }
+
+        logger.LogInformation(
+            "User {UserId} was permanently deleted by {DeletedByUserId}; removed {AssignmentCount} safe assignments",
+            userId, currentUserId, safeAssignments.Count);
+        return Ok(new { message = "User was permanently deleted from the database." });
     }
 
     [HttpGet("approvals/pending")]
@@ -361,6 +489,56 @@ public class AuthController(
         return new AuthResponse(token, expiresAt, ToResponse(user));
     }
 
+    private async Task<IReadOnlyList<ManagedUserResponse>> GetManagedUsers(
+        ApprovalStatus status, CancellationToken cancellationToken) =>
+        await db.Users.AsNoTracking()
+            .Where(x => x.IsActive && x.ApprovalStatus == status)
+            .OrderBy(x => x.DisplayName)
+            .ThenBy(x => x.Email)
+            .Select(x => new ManagedUserResponse(
+                x.Id, x.DisplayName, x.Email, x.Role, x.ApprovalStatus))
+            .ToListAsync(cancellationToken);
+
+    private async Task<IReadOnlyList<string>> GetUserDeleteDependencies(
+        Guid userId, CancellationToken cancellationToken)
+    {
+        var dependencies = new List<string>();
+
+        if (await db.Users.AsNoTracking().AnyAsync(
+                x => x.ApprovalReviewedByUserId == userId, cancellationToken))
+            dependencies.Add("approval reviews performed by the user");
+        if (await db.Projects.AsNoTracking().AnyAsync(
+                x => x.AssignedSurveyorId == userId || x.AssignedQcId == userId ||
+                     x.AssignedClientId == userId, cancellationToken))
+            dependencies.Add("project assignments");
+        if (await db.Projects.AsNoTracking().AnyAsync(
+                x => x.CreatedByUserId == userId, cancellationToken))
+            dependencies.Add("projects created by the user");
+        if (await db.ProjectAreaPhotos.AsNoTracking().AnyAsync(
+                x => x.UploadedByUserId == userId, cancellationToken))
+            dependencies.Add("project area photos uploaded by the user");
+        if (await db.AreaEquipment.AsNoTracking().AnyAsync(
+                x => x.CreatedByUserId == userId, cancellationToken))
+            dependencies.Add("equipment pins created by the user");
+        if (await db.SurveySessions.AsNoTracking().AnyAsync(
+                x => x.SurveyorId == userId, cancellationToken))
+            dependencies.Add("survey sessions");
+        if (await db.QcReviews.AsNoTracking().AnyAsync(
+                x => x.ReviewerId == userId, cancellationToken))
+            dependencies.Add("QC reviews");
+        if (await db.Files.AsNoTracking().AnyAsync(
+                x => x.UploadedById == userId, cancellationToken))
+            dependencies.Add("survey files uploaded by the user");
+        if (await db.AuditLogs.AsNoTracking().AnyAsync(
+                x => x.ActorId == userId, cancellationToken))
+            dependencies.Add("audit history");
+        if (await db.SyncBatches.AsNoTracking().AnyAsync(
+                x => x.SurveyorId == userId, cancellationToken))
+            dependencies.Add("survey synchronization history");
+
+        return dependencies;
+    }
+
     private static bool OtpMatches(string expected, string supplied)
     {
         var expectedBytes = Encoding.UTF8.GetBytes(expected);
@@ -376,4 +554,7 @@ public class AuthController(
 
     private static UserResponse ToResponse(User user) =>
         new(user.Id, user.Email, user.DisplayName, user.Role, user.ApprovalStatus);
+
+    private static ManagedUserResponse ToManagedResponse(User user) =>
+        new(user.Id, user.DisplayName, user.Email, user.Role, user.ApprovalStatus);
 }

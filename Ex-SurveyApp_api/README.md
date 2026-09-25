@@ -18,6 +18,10 @@
 - `POST /api/auth/login` accepts `email` and `password` and returns a JWT.
 - `GET /api/auth/me` requires `Authorization: Bearer <token>`.
 - `POST /api/auth/users` lets an Admin create a user with a selected `role`: `Admin`, `Manager`, `Qc`, `Surveyor`, or `Client`.
+- `GET /api/auth/users?status=approved` and `GET /api/auth/users?status=rejected` let Admin and Manager users list reviewed registrations. Managers see only QC, Surveyor, and Client users.
+- `GET /api/auth/users/approved` and `GET /api/auth/users/rejected` let Admin and Manager users list active users by approval status.
+- `PUT /api/auth/users/{userId}/role` changes an active user's role. Managers cannot modify Admin/Manager users or assign either privileged role.
+- `DELETE /api/auth/users/{userId}` permanently deletes an approved or rejected user when no important business records reference it. Safe legacy job-assignment links are removed first; protected project, survey, upload, review, report, sync, and audit dependencies return HTTP 409. Managers cannot delete Admin/Manager users, and users cannot delete themselves.
 - `GET /api/auth/approvals/pending` lets Admin and Manager users list pending registrations.
 - `PUT /api/auth/approvals/{userId}/approve` and `/reject` review a pending registration. Admin can review every role; Manager can review QC, Surveyor, and Client registrations.
 - Client and job reads require Admin, Manager, or Qc. Creating clients and jobs requires Admin or Manager. Surveyor and Client job access will be scoped to assignments in a later module.
@@ -44,5 +48,15 @@ The old `/api/jobs` controller has been replaced by `/api/projects`. Admin and M
 - `DELETE /api/projects/{projectId}/areas/{areaId}/photos/{photoId}` removes the database record and stored file.
 
 Project assignments must reference active, approved Surveyor, QC, and Client users. Assigned Surveyors can upload and delete area photos. QC and Client users have read-only access to their assigned projects and photo metadata. Photos are stored privately under `ProjectPhotoStorage:RootPath`; JPG, PNG, and WebP are accepted, with limits controlled by `MaxFileSizeBytes` and `MaxFilesPerRequest`.
+
+## Surveyor equipment pins
+
+Surveyor endpoints are under `/api/surveyor` and require a JWT for a user with the `Surveyor` role. Surveyors receive only their assigned projects, and attempting to open another Surveyor's project returns HTTP 403.
+
+- `GET /api/surveyor/projects` and `GET /api/surveyor/projects/{projectId}`
+- `GET /api/surveyor/projects/{projectId}/areas` and `GET /api/surveyor/projects/{projectId}/areas/{areaId}`
+- `GET`, `POST`, `PUT`, and `DELETE` equipment under `/api/surveyor/projects/{projectId}/areas/{areaId}/equipment`
+
+The first uploaded area photo becomes its layout image. If it is deleted, the next oldest photo becomes the layout. Equipment pins store `xPercent` and `yPercent` from 0 through 100 so markers remain aligned when the frontend resizes the image. `tagNumber` and `type` are required, and tag numbers are unique within an area.
 
 Frontend integration can load eligible assignment users from `GET /api/projects/assignment-options`. Photo responses include `downloadUrl`; fetch that URL with the JWT `Authorization` header and display the returned Blob. Development accepts browser requests from any `localhost` or `127.0.0.1` port. Production must configure allowed frontend origins through `Cors:AllowedOrigins` or environment keys such as `Cors__AllowedOrigins__0`.

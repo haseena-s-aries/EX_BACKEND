@@ -28,6 +28,9 @@ public record CreateUserRequest(
     [Required] string Password,
     [Required] UserRole Role);
 
+public record ChangeUserRoleRequest(
+    [Required] UserRole? Role);
+
 public record UserResponse(
     Guid Id,
     string Email,
@@ -39,6 +42,13 @@ public record PendingApprovalResponse(
     Guid Id,
     string Email,
     string DisplayName,
+    UserRole Role,
+    ApprovalStatus ApprovalStatus);
+
+public record ManagedUserResponse(
+    Guid Id,
+    string Name,
+    string Email,
     UserRole Role,
     ApprovalStatus ApprovalStatus);
 

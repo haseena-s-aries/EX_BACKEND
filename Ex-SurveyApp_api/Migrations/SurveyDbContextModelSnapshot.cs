@@ -45,6 +45,81 @@ namespace Ex_SurveyApp_api.Migrations
                     b.ToTable("Areas");
                 });
 
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.AreaEquipment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AreaId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("CertificateNumber")
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<string>("CircuitId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("EquipmentCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Location")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<string>("Manufacturer")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ProtectionDetails")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("TagNumber")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<decimal>("XPercent")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("decimal(5,2)");
+
+                    b.Property<decimal>("YPercent")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("decimal(5,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("ProjectId");
+
+                    b.HasIndex("AreaId", "TagNumber")
+                        .IsUnique();
+
+                    b.ToTable("AreaEquipment");
+                });
+
             modelBuilder.Entity("Ex_SurveyApp_api.Models.AuditLog", b =>
                 {
                     b.Property<Guid>("Id")
@@ -356,6 +431,10 @@ namespace Ex_SurveyApp_api.Migrations
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("LayoutImagePath")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
 
                     b.Property<Guid>("ProjectId")
                         .HasColumnType("uniqueidentifier");
@@ -700,6 +779,27 @@ namespace Ex_SurveyApp_api.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.AreaEquipment", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.ProjectArea", null)
+                        .WithMany("EquipmentPins")
+                        .HasForeignKey("AreaId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.Project", null)
+                        .WithMany("EquipmentPins")
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Ex_SurveyApp_api.Models.AuditLog", b =>
                 {
                     b.HasOne("Ex_SurveyApp_api.Models.User", null)
@@ -931,10 +1031,14 @@ namespace Ex_SurveyApp_api.Migrations
             modelBuilder.Entity("Ex_SurveyApp_api.Models.Project", b =>
                 {
                     b.Navigation("Areas");
+
+                    b.Navigation("EquipmentPins");
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.ProjectArea", b =>
                 {
+                    b.Navigation("EquipmentPins");
+
                     b.Navigation("Photos");
                 });
 #pragma warning restore 612, 618
