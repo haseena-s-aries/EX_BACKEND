@@ -453,3 +453,4 @@ public class AuthController(
     private static UserResponse ToResponse(User user) =>
         new(user.Id, user.Email, user.DisplayName, user.Role, user.ApprovalStatus);
 }
+//changes in delete methods
