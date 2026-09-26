@@ -13,6 +13,8 @@ namespace Ex_SurveyApp_api.Controllers;
 [Route("api/surveyor")]
 public class SurveyorController(SurveyDbContext db) : ControllerBase
 {
+    private const string AssignedStatus = "Assigned";
+
     [HttpGet("projects")]
     public async Task<ActionResult<IEnumerable<SurveyorProjectSummaryResponse>>> GetProjects(
         CancellationToken cancellationToken)
@@ -22,7 +24,7 @@ public class SurveyorController(SurveyDbContext db) : ControllerBase
             .OrderByDescending(x => x.UpdatedAt)
             .Select(x => new SurveyorProjectSummaryResponse(
                 x.Id, x.ProjectName, x.Sector, x.JobNo, x.Location, x.VesselOrSiteName,
-                x.CreatedAt, x.Areas.Count))
+                x.CreatedAt, AssignedStatus, x.Areas.Count))
             .ToListAsync(cancellationToken);
 
         return Ok(projects);
@@ -51,7 +53,7 @@ public class SurveyorController(SurveyDbContext db) : ControllerBase
 
         return Ok(new SurveyorProjectDetailsResponse(
             project.Id, project.ProjectName, project.Sector, project.JobNo, project.Location,
-            project.VesselOrSiteName, project.CreatedAt,
+            project.VesselOrSiteName, project.CreatedAt, AssignedStatus,
             names.GetValueOrDefault(project.AssignedSurveyorId, string.Empty),
             names.GetValueOrDefault(project.AssignedQcId, string.Empty),
             names.GetValueOrDefault(project.AssignedClientId, string.Empty),

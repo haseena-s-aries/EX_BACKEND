@@ -10,6 +10,7 @@ public record SurveyorProjectSummaryResponse(
     string Location,
     string VesselOrSiteName,
     DateTimeOffset CreatedDate,
+    string Status,
     int AreaCount);
 
 public record SurveyorProjectDetailsResponse(
@@ -20,6 +21,7 @@ public record SurveyorProjectDetailsResponse(
     string Location,
     string VesselOrSiteName,
     DateTimeOffset CreatedDate,
+    string Status,
     string AssignedSurveyor,
     string AssignedQc,
     string AssignedClient,
