@@ -369,7 +369,7 @@ public class AuthController(
         CancellationToken cancellationToken)
     {
         var users = await db.Users.AsNoTracking()
-            .Where(x => x.ApprovalStatus == ApprovalStatus.Pending)
+           .Where(x => x.IsActive && x.ApprovalStatus == ApprovalStatus.Pending)
             .OrderBy(x => x.DisplayName)
             .Select(x => new PendingApprovalResponse(x.Id, x.Email, x.DisplayName, x.Role, x.ApprovalStatus))
             .ToListAsync(cancellationToken);
@@ -385,6 +385,77 @@ public class AuthController(
     [Authorize(Roles = "Admin,Manager")]
     public Task<ActionResult<UserResponse>> RejectUser(Guid userId, CancellationToken cancellationToken) =>
         ReviewApproval(userId, ApprovalStatus.Rejected, cancellationToken);
+
+
+    public record UpdateUserRoleRequest(UserRole Role);
+
+    [HttpPut("users/{userId:guid}/role")]
+    [Authorize(Roles = "Admin,Manager")]
+    public async Task<ActionResult<UserResponse>> UpdateUserRole(
+        Guid userId,
+        UpdateUserRoleRequest request,
+        CancellationToken cancellationToken)
+    {
+        var user = await db.Users.FirstOrDefaultAsync(x => x.Id == userId, cancellationToken);
+
+        if (user == null)
+            return NotFound(new { error = "User not found." });
+
+        if (user.ApprovalStatus != ApprovalStatus.Approved)
+            return BadRequest(new { error = "Only approved users can change role." });
+
+        var currentRole = User.FindFirstValue(ClaimTypes.Role);
+
+        if (currentRole == nameof(UserRole.Manager))
+        {
+            if (user.Role is UserRole.Admin or UserRole.Manager)
+                return Forbid();
+
+            if (request.Role is UserRole.Admin or UserRole.Manager)
+                return Forbid();
+        }
+
+        user.Role = request.Role;
+
+        await db.SaveChangesAsync(cancellationToken);
+
+        return Ok(ToResponse(user));
+    }
+
+    //[HttpDelete("users/{userId:guid}")]
+    //[Authorize(Roles = "Admin,Manager")]
+    //public async Task<IActionResult>DeleteUser(
+    //Guid userId,
+    //CancellationToken cancellationToken)
+    //{
+    //    var currentUserId =
+    //        Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+
+    //    if (currentUserId == userId)
+    //        return BadRequest(new { error = "You cannot delete your own account." });
+
+    //    var user = await db.Users.FirstOrDefaultAsync(
+    //        x => x.Id == userId,
+    //        cancellationToken);
+
+    //    if (user == null)
+    //        return NotFound(new { error = "User not found." });
+
+    //    var currentRole = User.FindFirstValue(ClaimTypes.Role);
+
+    //    if (currentRole == nameof(UserRole.Manager) &&
+    //        user.Role is UserRole.Admin or UserRole.Manager)
+    //    {
+    //        return Forbid();
+    //    }
+
+    //    // Safer than hard delete because user may be referenced by projects.
+    //    user.IsActive = false;
+
+    //    await db.SaveChangesAsync(cancellationToken);
+
+    //    return Ok(new { message = "User deleted successfully." });
+    //}
 
     private async Task<ActionResult<UserResponse>> ReviewApproval(
         Guid userId, ApprovalStatus decision, CancellationToken cancellationToken)
@@ -408,7 +479,7 @@ public class AuthController(
         await db.SaveChangesAsync(cancellationToken);
         return Ok(ToResponse(user));
     }
-
+    //SaveChangesEventArgs success
     private async Task<IActionResult> GenerateSaveAndSendOtp(
         RegistrationOtp registration, DateTimeOffset now, CancellationToken cancellationToken)
     {
@@ -558,3 +629,4 @@ public class AuthController(
     private static ManagedUserResponse ToManagedResponse(User user) =>
         new(user.Id, user.DisplayName, user.Email, user.Role, user.ApprovalStatus);
 }
+//changes in delete methods
