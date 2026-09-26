@@ -11,7 +11,8 @@ public record UpsertProjectRequest(
     [Required, StringLength(200, MinimumLength = 1)] string VesselOrSiteName,
     [Required] Guid AssignedSurveyorId,
     [Required] Guid AssignedQcId,
-    [Required] Guid AssignedClientId);
+    [Required] Guid AssignedClientId,
+    ProjectStatus Status = ProjectStatus.Pending);
 
 public record UpsertProjectAreaRequest(
     [Required, StringLength(200, MinimumLength = 1)] string AreaName);
@@ -29,6 +30,7 @@ public record ProjectSummaryResponse(
     string JobNo,
     string Location,
     string VesselOrSiteName,
+    ProjectStatus Status,
     Guid AssignedSurveyorId,
     Guid AssignedQcId,
     Guid AssignedClientId,
@@ -44,6 +46,7 @@ public record ProjectResponse(
     string JobNo,
     string Location,
     string VesselOrSiteName,
+    ProjectStatus Status,
     Guid AssignedSurveyorId,
     Guid AssignedQcId,
     Guid AssignedClientId,

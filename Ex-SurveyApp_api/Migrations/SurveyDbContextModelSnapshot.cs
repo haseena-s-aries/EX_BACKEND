@@ -87,6 +87,9 @@ namespace Ex_SurveyApp_api.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
 
+                    b.Property<int>("SequenceNo")
+                        .HasColumnType("int");
+
                     b.Property<string>("TagNumber")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -113,6 +116,9 @@ namespace Ex_SurveyApp_api.Migrations
                     b.HasIndex("CreatedByUserId");
 
                     b.HasIndex("ProjectId");
+
+                    b.HasIndex("AreaId", "SequenceNo")
+                        .IsUnique();
 
                     b.HasIndex("AreaId", "TagNumber")
                         .IsUnique();
@@ -393,6 +399,9 @@ namespace Ex_SurveyApp_api.Migrations
                         .IsRequired()
                         .HasMaxLength(150)
                         .HasColumnType("nvarchar(150)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("datetimeoffset");

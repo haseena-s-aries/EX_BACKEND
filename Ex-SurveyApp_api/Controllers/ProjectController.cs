@@ -34,6 +34,7 @@ public class ProjectController(
             JobNo = request.JobNo.Trim(),
             Location = request.Location.Trim(),
             VesselOrSiteName = request.VesselOrSiteName.Trim(),
+            Status = request.Status,
             AssignedSurveyorId = request.AssignedSurveyorId,
             AssignedQcId = request.AssignedQcId,
             AssignedClientId = request.AssignedClientId,
@@ -62,7 +63,7 @@ public class ProjectController(
             .OrderByDescending(x => x.UpdatedAt)
             .Select(x => new ProjectSummaryResponse(
                 x.Id, x.ProjectName, x.Sector, x.JobNo, x.Location, x.VesselOrSiteName,
-                x.AssignedSurveyorId, x.AssignedQcId, x.AssignedClientId, x.CreatedByUserId,
+                x.Status, x.AssignedSurveyorId, x.AssignedQcId, x.AssignedClientId, x.CreatedByUserId,
                 x.CreatedAt, x.UpdatedAt, x.Areas.Count))
             .ToListAsync(cancellationToken);
         return Ok(projects);
@@ -112,6 +113,7 @@ public class ProjectController(
         project.JobNo = request.JobNo.Trim();
         project.Location = request.Location.Trim();
         project.VesselOrSiteName = request.VesselOrSiteName.Trim();
+        project.Status = request.Status;
         project.AssignedSurveyorId = request.AssignedSurveyorId;
         project.AssignedQcId = request.AssignedQcId;
         project.AssignedClientId = request.AssignedClientId;
@@ -395,6 +397,8 @@ public class ProjectController(
         if (request.AssignedSurveyorId == Guid.Empty || request.AssignedQcId == Guid.Empty ||
             request.AssignedClientId == Guid.Empty)
             return BadRequest(new { error = "Surveyor, QC, and Client assignments are required." });
+        if (!Enum.IsDefined(request.Status))
+            return BadRequest(new { error = "Status must be Pending, Active, InProgress, Completed, or OnHold." });
 
         var jobNo = request.JobNo.Trim();
         if (await db.Projects.AnyAsync(x => x.JobNo == jobNo && x.Id != projectId, cancellationToken))
@@ -449,7 +453,7 @@ public class ProjectController(
 
     private static ProjectResponse ToResponse(Project project) => new(
         project.Id, project.ProjectName, project.Sector, project.JobNo, project.Location,
-        project.VesselOrSiteName, project.AssignedSurveyorId, project.AssignedQcId,
+        project.VesselOrSiteName, project.Status, project.AssignedSurveyorId, project.AssignedQcId,
         project.AssignedClientId, project.CreatedByUserId, project.CreatedAt, project.UpdatedAt,
         project.Areas.OrderBy(x => x.CreatedAt).Select(ToResponse).ToArray());
 

@@ -1,5 +1,14 @@
 namespace Ex_SurveyApp_api.Models;
 
+public enum ProjectStatus
+{
+    Pending = 0,
+    Active = 1,
+    InProgress = 2,
+    Completed = 3,
+    OnHold = 4
+}
+
 public class Project
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -8,6 +17,7 @@ public class Project
     public required string JobNo { get; set; }
     public required string Location { get; set; }
     public required string VesselOrSiteName { get; set; }
+    public ProjectStatus Status { get; set; } = ProjectStatus.Pending;
     public Guid AssignedSurveyorId { get; set; }
     public Guid AssignedQcId { get; set; }
     public Guid AssignedClientId { get; set; }
@@ -44,6 +54,7 @@ public class AreaEquipment
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid ProjectId { get; set; }
     public Guid AreaId { get; set; }
+    public int SequenceNo { get; set; }
     public decimal XPercent { get; set; }
     public decimal YPercent { get; set; }
     public required string TagNumber { get; set; }

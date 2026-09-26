@@ -67,6 +67,7 @@ public class SurveyDbContext(DbContextOptions<SurveyDbContext> options) : DbCont
         modelBuilder.Entity<AreaEquipment>().Property(x => x.Manufacturer).HasMaxLength(200);
         modelBuilder.Entity<AreaEquipment>().Property(x => x.ProtectionDetails).HasMaxLength(500);
         modelBuilder.Entity<AreaEquipment>().Property(x => x.CertificateNumber).HasMaxLength(150);
+        modelBuilder.Entity<AreaEquipment>().HasIndex(x => new { x.AreaId, x.SequenceNo }).IsUnique();
         modelBuilder.Entity<AreaEquipment>().HasIndex(x => new { x.AreaId, x.TagNumber }).IsUnique();
         modelBuilder.Entity<AreaEquipment>().HasOne<Project>().WithMany(x => x.EquipmentPins).HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<AreaEquipment>().HasOne<ProjectArea>().WithMany(x => x.EquipmentPins).HasForeignKey(x => x.AreaId).OnDelete(DeleteBehavior.Cascade);

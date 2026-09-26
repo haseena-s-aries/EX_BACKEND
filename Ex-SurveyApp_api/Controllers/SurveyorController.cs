@@ -13,8 +13,6 @@ namespace Ex_SurveyApp_api.Controllers;
 [Route("api/surveyor")]
 public class SurveyorController(SurveyDbContext db) : ControllerBase
 {
-    private const string AssignedStatus = "Assigned";
-
     [HttpGet("projects")]
     public async Task<ActionResult<IEnumerable<SurveyorProjectSummaryResponse>>> GetProjects(
         CancellationToken cancellationToken)
@@ -24,7 +22,7 @@ public class SurveyorController(SurveyDbContext db) : ControllerBase
             .OrderByDescending(x => x.UpdatedAt)
             .Select(x => new SurveyorProjectSummaryResponse(
                 x.Id, x.ProjectName, x.Sector, x.JobNo, x.Location, x.VesselOrSiteName,
-                x.CreatedAt, AssignedStatus, x.Areas.Count))
+                x.CreatedAt, x.Status, x.Areas.Count))
             .ToListAsync(cancellationToken);
 
         return Ok(projects);
@@ -53,7 +51,7 @@ public class SurveyorController(SurveyDbContext db) : ControllerBase
 
         return Ok(new SurveyorProjectDetailsResponse(
             project.Id, project.ProjectName, project.Sector, project.JobNo, project.Location,
-            project.VesselOrSiteName, project.CreatedAt, AssignedStatus,
+            project.VesselOrSiteName, project.CreatedAt, project.Status,
             names.GetValueOrDefault(project.AssignedSurveyorId, string.Empty),
             names.GetValueOrDefault(project.AssignedQcId, string.Empty),
             names.GetValueOrDefault(project.AssignedClientId, string.Empty),
@@ -100,7 +98,7 @@ public class SurveyorController(SurveyDbContext db) : ControllerBase
             area.Id,
             area.AreaName,
             GetLayoutImagePath(projectId, area),
-            area.EquipmentPins.OrderBy(x => x.CreatedAt).Select(ToEquipmentResponse).ToArray()));
+            area.EquipmentPins.OrderBy(x => x.SequenceNo).Select(ToEquipmentResponse).ToArray()));
     }
 
     [HttpGet("projects/{projectId:guid}/areas/{areaId:guid}/equipment")]
@@ -115,7 +113,7 @@ public class SurveyorController(SurveyDbContext db) : ControllerBase
 
         var equipment = await db.AreaEquipment.AsNoTracking()
             .Where(x => x.ProjectId == projectId && x.AreaId == areaId)
-            .OrderBy(x => x.CreatedAt)
+            .OrderBy(x => x.SequenceNo)
             .ToListAsync(cancellationToken);
         return Ok(equipment.Select(ToEquipmentResponse));
     }
@@ -140,15 +138,24 @@ public class SurveyorController(SurveyDbContext db) : ControllerBase
                 x => x.AreaId == areaId && x.TagNumber == tagNumber, cancellationToken))
             return Conflict(new { error = "TagNumber already exists in this area." });
 
+        await using var transaction = db.Database.IsRelational()
+            ? await db.Database.BeginTransactionAsync(
+                System.Data.IsolationLevel.Serializable, cancellationToken)
+            : null;
+
+        var nextSequenceNo = (await db.AreaEquipment
+            .Where(x => x.AreaId == areaId)
+            .MaxAsync(x => (int?)x.SequenceNo, cancellationToken) ?? 0) + 1;
         var now = DateTimeOffset.UtcNow;
         var equipment = new AreaEquipment
         {
             ProjectId = projectId,
             AreaId = areaId,
+            SequenceNo = nextSequenceNo,
             XPercent = request.XPercent,
             YPercent = request.YPercent,
             TagNumber = tagNumber,
-            EquipmentCode = TrimOrNull(request.EquipmentCode),
+            EquipmentCode = TrimOrNull(request.EquipmentId),
             Type = request.Type.Trim(),
             CircuitId = TrimOrNull(request.CircuitId),
             Location = TrimOrNull(request.Location),
@@ -165,6 +172,8 @@ public class SurveyorController(SurveyDbContext db) : ControllerBase
         try
         {
             await db.SaveChangesAsync(cancellationToken);
+            if (transaction is not null)
+                await transaction.CommitAsync(cancellationToken);
         }
         catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
         {
@@ -204,7 +213,7 @@ public class SurveyorController(SurveyDbContext db) : ControllerBase
         equipment.XPercent = request.XPercent;
         equipment.YPercent = request.YPercent;
         equipment.TagNumber = tagNumber;
-        equipment.EquipmentCode = TrimOrNull(request.EquipmentCode);
+        equipment.EquipmentCode = TrimOrNull(request.EquipmentId);
         equipment.Type = request.Type.Trim();
         equipment.CircuitId = TrimOrNull(request.CircuitId);
         equipment.Location = TrimOrNull(request.Location);
@@ -304,6 +313,7 @@ public class SurveyorController(SurveyDbContext db) : ControllerBase
         equipment.Id,
         equipment.ProjectId,
         equipment.AreaId,
+        equipment.SequenceNo,
         equipment.XPercent,
         equipment.YPercent,
         equipment.TagNumber,
@@ -314,6 +324,7 @@ public class SurveyorController(SurveyDbContext db) : ControllerBase
         equipment.Manufacturer,
         equipment.ProtectionDetails,
         equipment.CertificateNumber,
+        "Active",
         equipment.CreatedByUserId,
         equipment.CreatedAt,
         equipment.UpdatedAt);
