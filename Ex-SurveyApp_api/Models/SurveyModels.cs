@@ -7,6 +7,8 @@ public enum InspectionType { Visual, Close, Detailed }
 public enum SurveyStatus { Draft, Submitted, Returned, Approved }
 public enum FindingStatus { Open, RectificationSubmitted, Verified, Closed }
 public enum FileCategory { Drawing, Checklist, EquipmentPhoto, FindingPhoto, RepairProof, Certificate, Report }
+public enum QcReviewStatus { PendingReview, InReview, ChangesRequested, Approved }
+public enum QcSeverity { Low, Medium, High, Critical }
 
 public class User
 {
@@ -104,12 +106,16 @@ public class ChecklistQuestion
 public class SurveySession
 {
     public Guid Id { get; set; } = Guid.NewGuid();
-    public Guid JobId { get; set; }
-    public Guid EquipmentId { get; set; }
+    public Guid? JobId { get; set; }
+    public Guid? EquipmentId { get; set; }
+    public Guid? AreaEquipmentId { get; set; }
     public Guid SurveyorId { get; set; }
     public Guid ChecklistTemplateId { get; set; }
     public SurveyStatus Status { get; set; } = SurveyStatus.Draft;
+    public string? SurveyorRemarks { get; set; }
+    public DateTimeOffset? InspectionTimestamp { get; set; }
     public DateTimeOffset? SubmittedAt { get; set; }
+    public DateTimeOffset? DueDate { get; set; }
 }
 
 public class SurveyAnswer
@@ -134,7 +140,8 @@ public class Finding
 public class SurveyFile
 {
     public Guid Id { get; set; } = Guid.NewGuid();
-    public Guid JobId { get; set; }
+    public Guid? JobId { get; set; }
+    public Guid? SurveySessionId { get; set; }
     public Guid? AreaId { get; set; }
     public Guid? EquipmentId { get; set; }
     public Guid? FindingId { get; set; }
@@ -150,10 +157,12 @@ public class QcReview
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid SurveySessionId { get; set; }
-    public Guid ReviewerId { get; set; }
-    public bool Approved { get; set; }
-    public string? Comment { get; set; }
-    public DateTimeOffset ReviewedAt { get; set; } = DateTimeOffset.UtcNow;
+    public Guid ReviewedByUserId { get; set; }
+    public QcReviewStatus Status { get; set; } = QcReviewStatus.PendingReview;
+    public string? Comments { get; set; }
+    public QcSeverity? Severity { get; set; }
+    public DateTimeOffset? StartedAt { get; set; }
+    public DateTimeOffset? ReviewedAt { get; set; }
 }
 
 public class ReportRevision

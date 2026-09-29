@@ -94,11 +94,14 @@ public class SurveyorController(SurveyDbContext db) : ControllerBase
         if (area is null)
             return NotFound(new { error = "Project area was not found." });
 
+        var reviews = await LoadEquipmentReviews(
+            area.EquipmentPins.Select(x => x.Id).ToArray(), cancellationToken);
         return Ok(new SurveyorAreaDetailsResponse(
             area.Id,
             area.AreaName,
             GetLayoutImagePath(projectId, area),
-            area.EquipmentPins.OrderBy(x => x.SequenceNo).Select(ToEquipmentResponse).ToArray()));
+            area.EquipmentPins.OrderBy(x => x.SequenceNo)
+                .Select(x => ToEquipmentResponse(x, reviews.GetValueOrDefault(x.Id))).ToArray()));
     }
 
     [HttpGet("projects/{projectId:guid}/areas/{areaId:guid}/equipment")]
@@ -115,7 +118,8 @@ public class SurveyorController(SurveyDbContext db) : ControllerBase
             .Where(x => x.ProjectId == projectId && x.AreaId == areaId)
             .OrderBy(x => x.SequenceNo)
             .ToListAsync(cancellationToken);
-        return Ok(equipment.Select(ToEquipmentResponse));
+        var reviews = await LoadEquipmentReviews(equipment.Select(x => x.Id).ToArray(), cancellationToken);
+        return Ok(equipment.Select(x => ToEquipmentResponse(x, reviews.GetValueOrDefault(x.Id))));
     }
 
     [HttpPost("projects/{projectId:guid}/areas/{areaId:guid}/equipment")]
@@ -168,7 +172,9 @@ public class SurveyorController(SurveyDbContext db) : ControllerBase
         };
 
         db.AreaEquipment.Add(equipment);
-        await TouchProject(projectId, cancellationToken);
+        var project = await TouchProject(projectId, cancellationToken);
+        if (project.Status == ProjectStatus.Pending)
+            project.Status = ProjectStatus.InProgress;
         try
         {
             await db.SaveChangesAsync(cancellationToken);
@@ -278,10 +284,11 @@ public class SurveyorController(SurveyDbContext db) : ControllerBase
         db.ProjectAreas.AsNoTracking().AnyAsync(
             x => x.Id == areaId && x.ProjectId == projectId, cancellationToken);
 
-    private async Task TouchProject(Guid projectId, CancellationToken cancellationToken)
+    private async Task<Project> TouchProject(Guid projectId, CancellationToken cancellationToken)
     {
         var project = await db.Projects.SingleAsync(x => x.Id == projectId, cancellationToken);
         project.UpdatedAt = DateTimeOffset.UtcNow;
+        return project;
     }
 
     private BadRequestObjectResult? ValidateRequest(UpsertAreaEquipmentRequest request)
@@ -309,7 +316,28 @@ public class SurveyorController(SurveyDbContext db) : ControllerBase
             : $"/api/projects/{projectId}/areas/{area.Id}/photos/{layoutPhoto.Id}";
     }
 
-    private static AreaEquipmentResponse ToEquipmentResponse(AreaEquipment equipment) => new(
+    private async Task<Dictionary<Guid, EquipmentReviewInfo>> LoadEquipmentReviews(
+        Guid[] equipmentIds, CancellationToken cancellationToken)
+    {
+        if (equipmentIds.Length == 0)
+            return [];
+
+        return await (
+            from inspection in db.SurveySessions.AsNoTracking()
+            where inspection.AreaEquipmentId.HasValue && equipmentIds.Contains(inspection.AreaEquipmentId.Value)
+            join review in db.QcReviews.AsNoTracking() on inspection.Id equals review.SurveySessionId into reviewGroup
+            from review in reviewGroup.DefaultIfEmpty()
+            select new EquipmentReviewInfo(
+                inspection.AreaEquipmentId!.Value,
+                inspection.Id,
+                review == null ? QcReviewStatus.PendingReview : review.Status,
+                review == null ? null : review.Comments,
+                review == null ? null : review.Severity))
+            .ToDictionaryAsync(x => x.EquipmentId, cancellationToken);
+    }
+
+    private static AreaEquipmentResponse ToEquipmentResponse(
+        AreaEquipment equipment, EquipmentReviewInfo? review = null) => new(
         equipment.Id,
         equipment.ProjectId,
         equipment.AreaId,
@@ -327,7 +355,11 @@ public class SurveyorController(SurveyDbContext db) : ControllerBase
         "Active",
         equipment.CreatedByUserId,
         equipment.CreatedAt,
-        equipment.UpdatedAt);
+        equipment.UpdatedAt,
+        review?.InspectionId,
+        review?.Status,
+        review?.Comments,
+        review?.Severity);
 
     private static string? TrimOrNull(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
@@ -336,6 +368,13 @@ public class SurveyorController(SurveyDbContext db) : ControllerBase
 
     private static bool IsUniqueConstraintViolation(DbUpdateException exception) =>
         exception.InnerException is SqlException { Number: 2601 or 2627 };
+
+    private sealed record EquipmentReviewInfo(
+        Guid EquipmentId,
+        Guid InspectionId,
+        QcReviewStatus Status,
+        string? Comments,
+        QcSeverity? Severity);
 
     private enum ProjectAccess { Allowed, NotFound, Forbidden }
 }

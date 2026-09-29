@@ -70,4 +70,8 @@ public record AreaEquipmentResponse(
     string Status,
     Guid CreatedByUserId,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    Guid? InspectionId = null,
+    QcReviewStatus? QcReviewStatus = null,
+    string? QcComments = null,
+    QcSeverity? QcSeverity = null);

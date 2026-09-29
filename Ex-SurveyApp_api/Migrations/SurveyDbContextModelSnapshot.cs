@@ -496,26 +496,34 @@ namespace Ex_SurveyApp_api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<bool>("Approved")
-                        .HasColumnType("bit");
+                    b.Property<string>("Comments")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
 
-                    b.Property<string>("Comment")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<DateTimeOffset>("ReviewedAt")
+                    b.Property<DateTimeOffset?>("ReviewedAt")
                         .HasColumnType("datetimeoffset");
 
-                    b.Property<Guid>("ReviewerId")
+                    b.Property<Guid>("ReviewedByUserId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<int?>("Severity")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset?>("StartedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
 
                     b.Property<Guid>("SurveySessionId")
                         .HasColumnType("uniqueidentifier");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ReviewerId");
+                    b.HasIndex("ReviewedByUserId");
 
-                    b.HasIndex("SurveySessionId");
+                    b.HasIndex("SurveySessionId")
+                        .IsUnique();
 
                     b.ToTable("QcReviews");
                 });
@@ -647,12 +655,15 @@ namespace Ex_SurveyApp_api.Migrations
                     b.Property<Guid?>("FindingId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<Guid>("JobId")
+                    b.Property<Guid?>("JobId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("StorageKey")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid?>("SurveySessionId")
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTimeOffset>("UploadedAt")
                         .HasColumnType("datetimeoffset");
@@ -670,6 +681,8 @@ namespace Ex_SurveyApp_api.Migrations
 
                     b.HasIndex("JobId");
 
+                    b.HasIndex("SurveySessionId");
+
                     b.HasIndex("UploadedById");
 
                     b.ToTable("Files");
@@ -681,13 +694,22 @@ namespace Ex_SurveyApp_api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid?>("AreaEquipmentId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<Guid>("ChecklistTemplateId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<Guid>("EquipmentId")
+                    b.Property<DateTimeOffset?>("DueDate")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("EquipmentId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<Guid>("JobId")
+                    b.Property<DateTimeOffset?>("InspectionTimestamp")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("JobId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<int>("Status")
@@ -699,7 +721,15 @@ namespace Ex_SurveyApp_api.Migrations
                     b.Property<Guid>("SurveyorId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("SurveyorRemarks")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
                     b.HasKey("Id");
+
+                    b.HasIndex("AreaEquipmentId")
+                        .IsUnique()
+                        .HasFilter("[AreaEquipmentId] IS NOT NULL");
 
                     b.HasIndex("ChecklistTemplateId");
 
@@ -923,7 +953,7 @@ namespace Ex_SurveyApp_api.Migrations
                 {
                     b.HasOne("Ex_SurveyApp_api.Models.User", null)
                         .WithMany()
-                        .HasForeignKey("ReviewerId")
+                        .HasForeignKey("ReviewedByUserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
@@ -983,8 +1013,12 @@ namespace Ex_SurveyApp_api.Migrations
                     b.HasOne("Ex_SurveyApp_api.Models.Job", null)
                         .WithMany()
                         .HasForeignKey("JobId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ex_SurveyApp_api.Models.SurveySession", null)
+                        .WithMany()
+                        .HasForeignKey("SurveySessionId")
+                        .OnDelete(DeleteBehavior.Cascade);
 
                     b.HasOne("Ex_SurveyApp_api.Models.User", null)
                         .WithMany()
@@ -995,6 +1029,11 @@ namespace Ex_SurveyApp_api.Migrations
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.SurveySession", b =>
                 {
+                    b.HasOne("Ex_SurveyApp_api.Models.AreaEquipment", null)
+                        .WithMany()
+                        .HasForeignKey("AreaEquipmentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Ex_SurveyApp_api.Models.ChecklistTemplate", null)
                         .WithMany()
                         .HasForeignKey("ChecklistTemplateId")
@@ -1004,14 +1043,12 @@ namespace Ex_SurveyApp_api.Migrations
                     b.HasOne("Ex_SurveyApp_api.Models.Equipment", null)
                         .WithMany()
                         .HasForeignKey("EquipmentId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("Ex_SurveyApp_api.Models.Job", null)
                         .WithMany()
                         .HasForeignKey("JobId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("Ex_SurveyApp_api.Models.User", null)
                         .WithMany()

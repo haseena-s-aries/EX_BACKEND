@@ -524,7 +524,7 @@ public class AuthController(
                 x => x.SurveyorId == userId, cancellationToken))
             dependencies.Add("survey sessions");
         if (await db.QcReviews.AsNoTracking().AnyAsync(
-                x => x.ReviewerId == userId, cancellationToken))
+                x => x.ReviewedByUserId == userId, cancellationToken))
             dependencies.Add("QC reviews");
         if (await db.Files.AsNoTracking().AnyAsync(
                 x => x.UploadedById == userId, cancellationToken))
