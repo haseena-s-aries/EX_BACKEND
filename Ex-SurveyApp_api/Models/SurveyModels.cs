@@ -9,6 +9,7 @@ public enum FindingStatus { Open, RectificationSubmitted, Verified, Closed }
 public enum FileCategory { Drawing, Checklist, EquipmentPhoto, FindingPhoto, RepairProof, Certificate, Report }
 public enum QcReviewStatus { PendingReview, InReview, ChangesRequested, Approved }
 public enum QcSeverity { Low, Medium, High, Critical }
+public enum EquipmentInspectionStatus { NotStarted, InProgress, Completed, ChangesRequested, QcApproved }
 
 public class User
 {
@@ -110,12 +111,15 @@ public class SurveySession
     public Guid? EquipmentId { get; set; }
     public Guid? AreaEquipmentId { get; set; }
     public Guid SurveyorId { get; set; }
-    public Guid ChecklistTemplateId { get; set; }
+    public Guid? ChecklistTemplateId { get; set; }
     public SurveyStatus Status { get; set; } = SurveyStatus.Draft;
+    public string? InspectorName { get; set; }
     public string? SurveyorRemarks { get; set; }
     public DateTimeOffset? InspectionTimestamp { get; set; }
     public DateTimeOffset? SubmittedAt { get; set; }
     public DateTimeOffset? DueDate { get; set; }
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
 public class SurveyAnswer

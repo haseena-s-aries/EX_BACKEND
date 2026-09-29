@@ -154,6 +154,60 @@ if (!string.IsNullOrWhiteSpace(adminEmail) && !string.IsNullOrWhiteSpace(adminPa
     await db.SaveChangesAsync();
 }
 
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<SurveyDbContext>();
+    var checklistSeed = new Dictionary<InspectionType, string[]>
+    {
+        [InspectionType.Visual] =
+        [
+            "Enclosure is intact with no cracks or damage",
+            "Gaskets are in good condition",
+            "No excessive corrosion on enclosure",
+            "Certification and rating plate is legible"
+        ],
+        [InspectionType.Close] =
+        [
+            "Cable entries and blanking elements are secure",
+            "Fasteners are present and correctly tightened",
+            "Earth connections are secure and free of corrosion",
+            "Sealing arrangements match the equipment certification"
+        ],
+        [InspectionType.Detailed] =
+        [
+            "Internal terminals are secure and undamaged",
+            "Flamepaths are clean and within permitted tolerances",
+            "Internal conductors show no overheating or insulation damage",
+            "Installed components match the approved equipment documentation"
+        ]
+    };
+
+    foreach (var (inspectionType, questions) in checklistSeed)
+    {
+        if (await db.ChecklistTemplates.AnyAsync(
+                x => x.InspectionType == inspectionType && x.IsActive))
+            continue;
+
+        var template = new ChecklistTemplate
+        {
+            Name = $"Default {inspectionType} Inspection",
+            InspectionType = inspectionType
+        };
+        db.ChecklistTemplates.Add(template);
+        for (var index = 0; index < questions.Length; index++)
+        {
+            db.ChecklistQuestions.Add(new ChecklistQuestion
+            {
+                ChecklistTemplateId = template.Id,
+                Text = questions[index],
+                SortOrder = index + 1
+            });
+        }
+    }
+
+    await db.SaveChangesAsync();
+}
+
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {

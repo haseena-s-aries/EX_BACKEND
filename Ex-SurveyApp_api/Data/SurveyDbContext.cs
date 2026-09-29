@@ -87,6 +87,7 @@ public class SurveyDbContext(DbContextOptions<SurveyDbContext> options) : DbCont
         modelBuilder.Entity<SurveySession>().HasOne<User>().WithMany().HasForeignKey(x => x.SurveyorId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<SurveySession>().HasOne<ChecklistTemplate>().WithMany().HasForeignKey(x => x.ChecklistTemplateId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<SurveySession>().HasIndex(x => x.AreaEquipmentId).IsUnique().HasFilter("[AreaEquipmentId] IS NOT NULL");
+        modelBuilder.Entity<SurveySession>().Property(x => x.InspectorName).HasMaxLength(200);
         modelBuilder.Entity<SurveySession>().Property(x => x.SurveyorRemarks).HasMaxLength(2000);
         modelBuilder.Entity<SurveyAnswer>().HasOne<SurveySession>().WithMany().HasForeignKey(x => x.SurveySessionId);
         modelBuilder.Entity<SurveyAnswer>().HasOne<ChecklistQuestion>().WithMany().HasForeignKey(x => x.ChecklistQuestionId).OnDelete(DeleteBehavior.Restrict);

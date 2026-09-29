@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using Microsoft.AspNetCore.Http;
 
 namespace Ex_SurveyApp_api.Models;
 
@@ -75,3 +76,81 @@ public record AreaEquipmentResponse(
     QcReviewStatus? QcReviewStatus = null,
     string? QcComments = null,
     QcSeverity? QcSeverity = null);
+
+public record SurveyorEquipmentDetailsResponse(
+    Guid Id,
+    Guid ProjectId,
+    Guid AreaId,
+    string AreaName,
+    int SequenceNo,
+    decimal XPercent,
+    decimal YPercent,
+    string TagNumber,
+    string? EquipmentId,
+    string Type,
+    string? CircuitId,
+    string? Location,
+    string? Manufacturer,
+    string? ProtectionDetails,
+    string? CertificateNumber,
+    DateTimeOffset CreatedAt,
+    Guid? InspectionId,
+    EquipmentInspectionStatus InspectionStatus,
+    bool InspectionEditable,
+    string? QcComments,
+    QcSeverity? QcSeverity);
+
+public record SurveyorChecklistItemResponse(
+    Guid ChecklistItemId,
+    InspectionType InspectionType,
+    string Text,
+    int SortOrder,
+    bool IsRequired);
+
+public record SaveInspectionAnswerRequest(
+    [Required] Guid ChecklistItemId,
+    bool IsChecked,
+    [StringLength(1000)] string? Remarks);
+
+public record SaveEquipmentInspectionRequest(
+    [Required] DateTimeOffset? InspectionDate,
+    [Required, StringLength(200, MinimumLength = 1)] string InspectorName,
+    [StringLength(2000)] string? Comments,
+    IReadOnlyCollection<SaveInspectionAnswerRequest> Answers,
+    bool IsCompleted = true);
+
+public record SurveyorInspectionAnswerResponse(
+    Guid ChecklistItemId,
+    InspectionType InspectionType,
+    string Text,
+    int SortOrder,
+    bool IsRequired,
+    bool IsChecked,
+    string? Remarks);
+
+public record SurveyorInspectionPhotoResponse(
+    Guid Id,
+    string FileName,
+    string PhotoPath,
+    DateTimeOffset UploadedAt);
+
+public record SurveyorEquipmentInspectionResponse(
+    Guid InspectionId,
+    Guid EquipmentId,
+    DateTimeOffset InspectionDate,
+    string InspectorName,
+    string? Comments,
+    EquipmentInspectionStatus Status,
+    bool IsEditable,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt,
+    IReadOnlyCollection<SurveyorInspectionAnswerResponse> Answers,
+    IReadOnlyCollection<SurveyorInspectionPhotoResponse> Photos,
+    string? QcComments,
+    QcSeverity? QcSeverity);
+
+public class UploadInspectionPhotosRequest
+{
+    [Required]
+    public List<IFormFile> Files { get; set; } = [];
+}

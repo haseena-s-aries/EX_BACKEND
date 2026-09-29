@@ -697,8 +697,11 @@ namespace Ex_SurveyApp_api.Migrations
                     b.Property<Guid?>("AreaEquipmentId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<Guid>("ChecklistTemplateId")
+                    b.Property<Guid?>("ChecklistTemplateId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.Property<DateTimeOffset?>("DueDate")
                         .HasColumnType("datetimeoffset");
@@ -708,6 +711,10 @@ namespace Ex_SurveyApp_api.Migrations
 
                     b.Property<DateTimeOffset?>("InspectionTimestamp")
                         .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("InspectorName")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<Guid?>("JobId")
                         .HasColumnType("uniqueidentifier");
@@ -724,6 +731,9 @@ namespace Ex_SurveyApp_api.Migrations
                     b.Property<string>("SurveyorRemarks")
                         .HasMaxLength(2000)
                         .HasColumnType("nvarchar(2000)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
 
                     b.HasKey("Id");
 
@@ -1037,8 +1047,7 @@ namespace Ex_SurveyApp_api.Migrations
                     b.HasOne("Ex_SurveyApp_api.Models.ChecklistTemplate", null)
                         .WithMany()
                         .HasForeignKey("ChecklistTemplateId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("Ex_SurveyApp_api.Models.Equipment", null)
                         .WithMany()

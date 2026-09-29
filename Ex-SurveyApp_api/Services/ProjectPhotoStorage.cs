@@ -17,6 +17,8 @@ public interface IProjectPhotoStorage
     int MaxFilesPerRequest { get; }
     Task<StoredProjectPhoto> SaveAsync(IFormFile file, Guid projectId, Guid areaId,
         CancellationToken cancellationToken);
+    Task<StoredProjectPhoto> SaveInspectionAsync(IFormFile file, Guid projectId, Guid inspectionId,
+        CancellationToken cancellationToken);
     Task<StoredProjectPhotoContent?> OpenReadAsync(string relativePath, CancellationToken cancellationToken = default);
     Task DeleteAsync(string relativePath, CancellationToken cancellationToken = default);
 }
@@ -45,6 +47,17 @@ public class ProjectPhotoStorage : IProjectPhotoStorage
 
     public async Task<StoredProjectPhoto> SaveAsync(IFormFile file, Guid projectId, Guid areaId,
         CancellationToken cancellationToken)
+        => await SaveToDirectory(file, Path.Combine(projectId.ToString("N"), areaId.ToString("N")),
+            cancellationToken);
+
+    public async Task<StoredProjectPhoto> SaveInspectionAsync(
+        IFormFile file, Guid projectId, Guid inspectionId, CancellationToken cancellationToken)
+        => await SaveToDirectory(file,
+            Path.Combine("inspections", projectId.ToString("N"), inspectionId.ToString("N")),
+            cancellationToken);
+
+    private async Task<StoredProjectPhoto> SaveToDirectory(
+        IFormFile file, string relativeDirectory, CancellationToken cancellationToken)
     {
         if (file.Length <= 0)
             throw new ProjectPhotoValidationException("Empty image files are not allowed.");
@@ -62,7 +75,7 @@ public class ProjectPhotoStorage : IProjectPhotoStorage
         if (!AllowedExtensions.Contains(extension) || !hasSupportedContentType)
             throw new ProjectPhotoValidationException("Only JPG, PNG, and WebP images are allowed.");
 
-        var directory = Path.Combine(rootPath, projectId.ToString("N"), areaId.ToString("N"));
+        var directory = Path.Combine(rootPath, relativeDirectory);
         Directory.CreateDirectory(directory);
         var storedName = $"{Guid.NewGuid():N}{extension}";
         var absolutePath = Path.Combine(directory, storedName);

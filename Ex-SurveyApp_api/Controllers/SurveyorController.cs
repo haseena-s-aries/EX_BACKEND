@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Ex_SurveyApp_api.Data;
 using Ex_SurveyApp_api.Models;
+using Ex_SurveyApp_api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
@@ -11,7 +12,10 @@ namespace Ex_SurveyApp_api.Controllers;
 [ApiController]
 [Authorize(Roles = nameof(UserRole.Surveyor))]
 [Route("api/surveyor")]
-public class SurveyorController(SurveyDbContext db) : ControllerBase
+public class SurveyorController(
+    SurveyDbContext db,
+    IProjectPhotoStorage photoStorage,
+    ILogger<SurveyorController> logger) : ControllerBase
 {
     [HttpGet("projects")]
     public async Task<ActionResult<IEnumerable<SurveyorProjectSummaryResponse>>> GetProjects(
@@ -263,6 +267,465 @@ public class SurveyorController(SurveyDbContext db) : ControllerBase
         return NoContent();
     }
 
+    [HttpGet("equipment/{equipmentId:guid}")]
+    public async Task<ActionResult<SurveyorEquipmentDetailsResponse>> GetEquipmentDetails(
+        Guid equipmentId, CancellationToken cancellationToken)
+    {
+        var context = await GetEquipmentContext(equipmentId, tracking: false, cancellationToken);
+        if (context is null)
+            return NotFound(new { error = "Equipment was not found." });
+        if (context.Project.AssignedSurveyorId != CurrentUserId)
+            return ProjectForbidden();
+
+        var inspection = await GetInspectionInfo(equipmentId, cancellationToken);
+        return Ok(ToEquipmentDetailsResponse(context, inspection));
+    }
+
+    [HttpGet("equipment/{equipmentId:guid}/inspection")]
+    public async Task<ActionResult<SurveyorEquipmentInspectionResponse>> GetInspection(
+        Guid equipmentId, CancellationToken cancellationToken)
+    {
+        var context = await GetEquipmentContext(equipmentId, tracking: false, cancellationToken);
+        if (context is null)
+            return NotFound(new { error = "Equipment was not found." });
+        if (context.Project.AssignedSurveyorId != CurrentUserId)
+            return ProjectForbidden();
+
+        var inspection = await db.SurveySessions.AsNoTracking().SingleOrDefaultAsync(
+            x => x.AreaEquipmentId == equipmentId, cancellationToken);
+        if (inspection is null)
+            return NotFound(new { error = "Inspection has not been started for this equipment." });
+
+        return Ok(await BuildInspectionResponse(inspection, cancellationToken));
+    }
+
+    [HttpPost("equipment/{equipmentId:guid}/inspection")]
+    public async Task<ActionResult<SurveyorEquipmentInspectionResponse>> CreateInspection(
+        Guid equipmentId, SaveEquipmentInspectionRequest request, CancellationToken cancellationToken)
+    {
+        var context = await GetEquipmentContext(equipmentId, tracking: false, cancellationToken);
+        if (context is null)
+            return NotFound(new { error = "Equipment was not found." });
+        if (context.Project.AssignedSurveyorId != CurrentUserId)
+            return ProjectForbidden();
+        if (await db.SurveySessions.AnyAsync(x => x.AreaEquipmentId == equipmentId, cancellationToken))
+            return Conflict(new { error = "An inspection already exists for this equipment." });
+
+        var validation = await ValidateInspectionRequest(request, cancellationToken);
+        if (validation.Error is not null)
+            return validation.Error;
+
+        var now = DateTimeOffset.UtcNow;
+        var inspection = new SurveySession
+        {
+            AreaEquipmentId = equipmentId,
+            SurveyorId = CurrentUserId,
+            InspectorName = request.InspectorName.Trim(),
+            SurveyorRemarks = TrimOrNull(request.Comments),
+            InspectionTimestamp = request.InspectionDate!.Value,
+            Status = request.IsCompleted ? SurveyStatus.Submitted : SurveyStatus.Draft,
+            SubmittedAt = request.IsCompleted ? now : null,
+            DueDate = request.IsCompleted ? now.AddDays(7) : null,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+        db.SurveySessions.Add(inspection);
+        db.SurveyAnswers.AddRange(request.Answers.Select(answer => new SurveyAnswer
+        {
+            SurveySessionId = inspection.Id,
+            ChecklistQuestionId = answer.ChecklistItemId,
+            Value = answer.IsChecked.ToString(),
+            Comment = TrimOrNull(answer.Remarks)
+        }));
+        await db.SaveChangesAsync(cancellationToken);
+
+        return StatusCode(StatusCodes.Status201Created,
+            await BuildInspectionResponse(inspection, cancellationToken));
+    }
+
+    [HttpPut("inspections/{inspectionId:guid}")]
+    public async Task<ActionResult<SurveyorEquipmentInspectionResponse>> UpdateInspection(
+        Guid inspectionId, SaveEquipmentInspectionRequest request, CancellationToken cancellationToken)
+    {
+        var context = await GetInspectionContext(inspectionId, cancellationToken);
+        if (context is null)
+            return NotFound(new { error = "Inspection was not found." });
+        if (context.Project.AssignedSurveyorId != CurrentUserId)
+            return ProjectForbidden();
+
+        var review = await db.QcReviews.SingleOrDefaultAsync(
+            x => x.SurveySessionId == inspectionId, cancellationToken);
+        if (IsInspectionLocked(context.Inspection, review))
+            return Conflict(new { error = "This inspection is QC approved and locked." });
+
+        var validation = await ValidateInspectionRequest(request, cancellationToken);
+        if (validation.Error is not null)
+            return validation.Error;
+
+        var now = DateTimeOffset.UtcNow;
+        context.Inspection.InspectorName = request.InspectorName.Trim();
+        context.Inspection.SurveyorRemarks = TrimOrNull(request.Comments);
+        context.Inspection.InspectionTimestamp = request.InspectionDate!.Value;
+        context.Inspection.Status = request.IsCompleted ? SurveyStatus.Submitted : SurveyStatus.Draft;
+        context.Inspection.SubmittedAt = request.IsCompleted ? now : null;
+        context.Inspection.DueDate = request.IsCompleted ? now.AddDays(7) : null;
+        context.Inspection.UpdatedAt = now;
+
+        var answers = await db.SurveyAnswers
+            .Where(x => x.SurveySessionId == inspectionId)
+            .ToListAsync(cancellationToken);
+        var requestedIds = request.Answers.Select(x => x.ChecklistItemId).ToHashSet();
+        db.SurveyAnswers.RemoveRange(answers.Where(x => !requestedIds.Contains(x.ChecklistQuestionId)));
+        var answerByQuestion = answers.ToDictionary(x => x.ChecklistQuestionId);
+        foreach (var answerRequest in request.Answers)
+        {
+            if (!answerByQuestion.TryGetValue(answerRequest.ChecklistItemId, out var answer))
+            {
+                answer = new SurveyAnswer
+                {
+                    SurveySessionId = inspectionId,
+                    ChecklistQuestionId = answerRequest.ChecklistItemId
+                };
+                db.SurveyAnswers.Add(answer);
+            }
+            answer.Value = answerRequest.IsChecked.ToString();
+            answer.Comment = TrimOrNull(answerRequest.Remarks);
+        }
+
+        if (request.IsCompleted && review?.Status == QcReviewStatus.ChangesRequested)
+        {
+            review.Status = QcReviewStatus.PendingReview;
+            review.StartedAt = null;
+            review.ReviewedAt = null;
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        return Ok(await BuildInspectionResponse(context.Inspection, cancellationToken));
+    }
+
+    [HttpGet("checklist")]
+    public async Task<ActionResult<IEnumerable<SurveyorChecklistItemResponse>>> GetChecklist(
+        CancellationToken cancellationToken)
+    {
+        var items = await (
+            from question in db.ChecklistQuestions.AsNoTracking()
+            join template in db.ChecklistTemplates.AsNoTracking()
+                on question.ChecklistTemplateId equals template.Id
+            where template.IsActive
+            orderby template.InspectionType, question.SortOrder
+            select new SurveyorChecklistItemResponse(
+                question.Id, template.InspectionType, question.Text, question.SortOrder, question.IsRequired))
+            .ToListAsync(cancellationToken);
+        return Ok(items);
+    }
+
+    [HttpPost("inspections/{inspectionId:guid}/photos")]
+    [Consumes("multipart/form-data")]
+    public async Task<ActionResult<IEnumerable<SurveyorInspectionPhotoResponse>>> UploadInspectionPhotos(
+        Guid inspectionId, [FromForm] UploadInspectionPhotosRequest request,
+        CancellationToken cancellationToken)
+    {
+        var context = await GetInspectionContext(inspectionId, cancellationToken);
+        if (context is null)
+            return NotFound(new { error = "Inspection was not found." });
+        if (context.Project.AssignedSurveyorId != CurrentUserId)
+            return ProjectForbidden();
+        var review = await db.QcReviews.AsNoTracking().SingleOrDefaultAsync(
+            x => x.SurveySessionId == inspectionId, cancellationToken);
+        if (IsInspectionLocked(context.Inspection, review))
+            return Conflict(new { error = "This inspection is QC approved and locked." });
+        if (request.Files.Count == 0)
+            return BadRequest(new { error = "Select at least one inspection photo." });
+        if (request.Files.Count > photoStorage.MaxFilesPerRequest)
+            return BadRequest(new { error = $"A maximum of {photoStorage.MaxFilesPerRequest} photos can be uploaded at once." });
+
+        var storedPaths = new List<string>();
+        var photos = new List<SurveyFile>();
+        try
+        {
+            foreach (var file in request.Files)
+            {
+                var stored = await photoStorage.SaveInspectionAsync(
+                    file, context.Project.Id, inspectionId, cancellationToken);
+                storedPaths.Add(stored.RelativePath);
+                photos.Add(new SurveyFile
+                {
+                    SurveySessionId = inspectionId,
+                    Category = FileCategory.EquipmentPhoto,
+                    FileName = stored.OriginalFileName,
+                    StorageKey = stored.RelativePath,
+                    ContentType = file.ContentType,
+                    UploadedById = CurrentUserId
+                });
+            }
+
+            db.Files.AddRange(photos);
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (ProjectPhotoValidationException ex)
+        {
+            await DeleteStoredFiles(storedPaths);
+            return BadRequest(new { error = ex.Message });
+        }
+        catch
+        {
+            await DeleteStoredFiles(storedPaths);
+            throw;
+        }
+
+        return StatusCode(StatusCodes.Status201Created,
+            photos.Select(ToInspectionPhotoResponse).ToArray());
+    }
+
+    [HttpGet("inspections/{inspectionId:guid}/photos/{photoId:guid}")]
+    public async Task<IActionResult> DownloadInspectionPhoto(
+        Guid inspectionId, Guid photoId, CancellationToken cancellationToken)
+    {
+        var context = await GetInspectionContext(inspectionId, cancellationToken, tracking: false);
+        if (context is null)
+            return NotFound(new { error = "Inspection was not found." });
+        if (context.Project.AssignedSurveyorId != CurrentUserId)
+            return ProjectForbidden();
+        var photo = await db.Files.AsNoTracking().SingleOrDefaultAsync(
+            x => x.Id == photoId && x.SurveySessionId == inspectionId &&
+                 x.Category == FileCategory.EquipmentPhoto, cancellationToken);
+        if (photo is null)
+            return NotFound(new { error = "Inspection photo was not found." });
+        var content = await photoStorage.OpenReadAsync(photo.StorageKey, cancellationToken);
+        return content is null
+            ? NotFound(new { error = "Inspection photo file was not found." })
+            : File(content.Stream, content.ContentType, enableRangeProcessing: true);
+    }
+
+    [HttpDelete("inspections/{inspectionId:guid}/photos/{photoId:guid}")]
+    public async Task<IActionResult> DeleteInspectionPhoto(
+        Guid inspectionId, Guid photoId, CancellationToken cancellationToken)
+    {
+        var context = await GetInspectionContext(inspectionId, cancellationToken);
+        if (context is null)
+            return NotFound(new { error = "Inspection was not found." });
+        if (context.Project.AssignedSurveyorId != CurrentUserId)
+            return ProjectForbidden();
+        var review = await db.QcReviews.AsNoTracking().SingleOrDefaultAsync(
+            x => x.SurveySessionId == inspectionId, cancellationToken);
+        if (IsInspectionLocked(context.Inspection, review))
+            return Conflict(new { error = "This inspection is QC approved and locked." });
+
+        var photo = await db.Files.SingleOrDefaultAsync(
+            x => x.Id == photoId && x.SurveySessionId == inspectionId &&
+                 x.Category == FileCategory.EquipmentPhoto, cancellationToken);
+        if (photo is null)
+            return NotFound(new { error = "Inspection photo was not found." });
+        db.Files.Remove(photo);
+        await db.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await photoStorage.DeleteAsync(photo.StorageKey, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not delete stored inspection photo {PhotoId}", photoId);
+        }
+        return NoContent();
+    }
+
+    private async Task<EquipmentContext?> GetEquipmentContext(
+        Guid equipmentId, bool tracking, CancellationToken cancellationToken)
+    {
+        var equipment = tracking ? db.AreaEquipment : db.AreaEquipment.AsNoTracking();
+        var areas = tracking ? db.ProjectAreas : db.ProjectAreas.AsNoTracking();
+        var projects = tracking ? db.Projects : db.Projects.AsNoTracking();
+        return await (
+            from pin in equipment
+            join area in areas on pin.AreaId equals area.Id
+            join project in projects on pin.ProjectId equals project.Id
+            where pin.Id == equipmentId
+            select new EquipmentContext(pin, area, project))
+            .SingleOrDefaultAsync(cancellationToken);
+    }
+
+    private async Task<InspectionContext?> GetInspectionContext(
+        Guid inspectionId, CancellationToken cancellationToken, bool tracking = true)
+    {
+        var inspections = tracking ? db.SurveySessions : db.SurveySessions.AsNoTracking();
+        var equipment = tracking ? db.AreaEquipment : db.AreaEquipment.AsNoTracking();
+        var projects = tracking ? db.Projects : db.Projects.AsNoTracking();
+        return await (
+            from inspection in inspections
+            join pin in equipment on inspection.AreaEquipmentId equals pin.Id
+            join project in projects on pin.ProjectId equals project.Id
+            where inspection.Id == inspectionId
+            select new InspectionContext(inspection, pin, project))
+            .SingleOrDefaultAsync(cancellationToken);
+    }
+
+    private async Task<InspectionInfo?> GetInspectionInfo(
+        Guid equipmentId, CancellationToken cancellationToken) =>
+        await (
+            from inspection in db.SurveySessions.AsNoTracking()
+            where inspection.AreaEquipmentId == equipmentId
+            join review in db.QcReviews.AsNoTracking()
+                on inspection.Id equals review.SurveySessionId into reviewGroup
+            from review in reviewGroup.DefaultIfEmpty()
+            select new InspectionInfo(
+                inspection.Id,
+                inspection.Status,
+                review == null ? null : review.Status,
+                review == null ? null : review.Comments,
+                review == null ? null : review.Severity))
+            .SingleOrDefaultAsync(cancellationToken);
+
+    private async Task<SurveyorEquipmentInspectionResponse> BuildInspectionResponse(
+        SurveySession inspection, CancellationToken cancellationToken)
+    {
+        var checklist = await (
+            from question in db.ChecklistQuestions.AsNoTracking()
+            join template in db.ChecklistTemplates.AsNoTracking()
+                on question.ChecklistTemplateId equals template.Id
+            where template.IsActive
+            orderby template.InspectionType, question.SortOrder
+            select new
+            {
+                question.Id,
+                template.InspectionType,
+                question.Text,
+                question.SortOrder,
+                question.IsRequired
+            }).ToListAsync(cancellationToken);
+        var savedAnswers = await db.SurveyAnswers.AsNoTracking()
+            .Where(x => x.SurveySessionId == inspection.Id)
+            .ToDictionaryAsync(x => x.ChecklistQuestionId, cancellationToken);
+        var answers = checklist.Select(item =>
+        {
+            savedAnswers.TryGetValue(item.Id, out var answer);
+            return new SurveyorInspectionAnswerResponse(
+                item.Id,
+                item.InspectionType,
+                item.Text,
+                item.SortOrder,
+                item.IsRequired,
+                bool.TryParse(answer?.Value, out var isChecked) && isChecked,
+                answer?.Comment);
+        }).ToArray();
+        var photoEntities = await db.Files.AsNoTracking()
+            .Where(x => x.SurveySessionId == inspection.Id && x.Category == FileCategory.EquipmentPhoto)
+            .OrderBy(x => x.UploadedAt)
+            .ToListAsync(cancellationToken);
+        var photos = photoEntities.Select(ToInspectionPhotoResponse).ToArray();
+        var review = await db.QcReviews.AsNoTracking().SingleOrDefaultAsync(
+            x => x.SurveySessionId == inspection.Id, cancellationToken);
+
+        return new SurveyorEquipmentInspectionResponse(
+            inspection.Id,
+            inspection.AreaEquipmentId!.Value,
+            inspection.InspectionTimestamp ?? inspection.CreatedAt,
+            inspection.InspectorName ?? string.Empty,
+            inspection.SurveyorRemarks,
+            GetInspectionStatus(inspection.Status, review?.Status),
+            !IsInspectionLocked(inspection, review),
+            inspection.CreatedAt,
+            inspection.UpdatedAt,
+            answers,
+            photos,
+            review?.Comments,
+            review?.Severity);
+    }
+
+    private async Task<InspectionValidationResult> ValidateInspectionRequest(
+        SaveEquipmentInspectionRequest request, CancellationToken cancellationToken)
+    {
+        if (!request.InspectionDate.HasValue)
+            return new InspectionValidationResult(BadRequest(new { error = "InspectionDate is required." }));
+        if (string.IsNullOrWhiteSpace(request.InspectorName))
+            return new InspectionValidationResult(BadRequest(new { error = "InspectorName is required." }));
+        if (request.Answers is null)
+            return new InspectionValidationResult(BadRequest(new { error = "Answers are required." }));
+
+        var answerIds = request.Answers.Select(x => x.ChecklistItemId).ToArray();
+        if (answerIds.Any(x => x == Guid.Empty) || answerIds.Distinct().Count() != answerIds.Length)
+            return new InspectionValidationResult(BadRequest(new { error = "Checklist answers contain invalid or duplicate item IDs." }));
+        var validCount = await (
+            from question in db.ChecklistQuestions.AsNoTracking()
+            join template in db.ChecklistTemplates.AsNoTracking()
+                on question.ChecklistTemplateId equals template.Id
+            where template.IsActive && answerIds.Contains(question.Id)
+            select question.Id).CountAsync(cancellationToken);
+        return validCount == answerIds.Length
+            ? new InspectionValidationResult(null)
+            : new InspectionValidationResult(BadRequest(new { error = "One or more checklist items are invalid or inactive." }));
+    }
+
+    private static SurveyorEquipmentDetailsResponse ToEquipmentDetailsResponse(
+        EquipmentContext context, InspectionInfo? inspection)
+    {
+        var pin = context.Equipment;
+        var status = inspection is null
+            ? EquipmentInspectionStatus.NotStarted
+            : GetInspectionStatus(inspection.SurveyStatus, inspection.QcStatus);
+        return new SurveyorEquipmentDetailsResponse(
+            pin.Id,
+            pin.ProjectId,
+            pin.AreaId,
+            context.Area.AreaName,
+            pin.SequenceNo,
+            pin.XPercent,
+            pin.YPercent,
+            pin.TagNumber,
+            pin.EquipmentCode,
+            pin.Type,
+            pin.CircuitId,
+            pin.Location,
+            pin.Manufacturer,
+            pin.ProtectionDetails,
+            pin.CertificateNumber,
+            pin.CreatedAt,
+            inspection?.InspectionId,
+            status,
+            status != EquipmentInspectionStatus.QcApproved,
+            inspection?.QcComments,
+            inspection?.QcSeverity);
+    }
+
+    private static EquipmentInspectionStatus GetInspectionStatus(
+        SurveyStatus surveyStatus, QcReviewStatus? qcStatus)
+    {
+        if (qcStatus == QcReviewStatus.Approved || surveyStatus == SurveyStatus.Approved)
+            return EquipmentInspectionStatus.QcApproved;
+        if (qcStatus == QcReviewStatus.ChangesRequested || surveyStatus == SurveyStatus.Returned)
+            return EquipmentInspectionStatus.ChangesRequested;
+        return surveyStatus == SurveyStatus.Submitted
+            ? EquipmentInspectionStatus.Completed
+            : EquipmentInspectionStatus.InProgress;
+    }
+
+    private static bool IsInspectionLocked(SurveySession inspection, QcReview? review) =>
+        inspection.Status == SurveyStatus.Approved || review?.Status == QcReviewStatus.Approved;
+
+    private static SurveyorInspectionPhotoResponse ToInspectionPhotoResponse(SurveyFile photo) => new(
+        photo.Id,
+        photo.FileName,
+        $"/api/surveyor/inspections/{photo.SurveySessionId}/photos/{photo.Id}",
+        photo.UploadedAt);
+
+    private async Task DeleteStoredFiles(IEnumerable<string> paths)
+    {
+        foreach (var path in paths)
+        {
+            try
+            {
+                await photoStorage.DeleteAsync(path);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Could not clean up stored inspection photo {Path}", path);
+            }
+        }
+    }
+
+    private ObjectResult ProjectForbidden() => StatusCode(
+        StatusCodes.Status403Forbidden,
+        new { error = "This project is assigned to another Surveyor." });
+
     private async Task<ProjectAccess> CheckProjectAccess(Guid projectId, CancellationToken cancellationToken)
     {
         var assignedSurveyorId = await db.Projects.AsNoTracking()
@@ -330,6 +793,7 @@ public class SurveyorController(SurveyDbContext db) : ControllerBase
             select new EquipmentReviewInfo(
                 inspection.AreaEquipmentId!.Value,
                 inspection.Id,
+                inspection.Status,
                 review == null ? QcReviewStatus.PendingReview : review.Status,
                 review == null ? null : review.Comments,
                 review == null ? null : review.Severity))
@@ -352,7 +816,9 @@ public class SurveyorController(SurveyDbContext db) : ControllerBase
         equipment.Manufacturer,
         equipment.ProtectionDetails,
         equipment.CertificateNumber,
-        "Active",
+        review is null
+            ? EquipmentInspectionStatus.NotStarted.ToString()
+            : GetInspectionStatus(review.SurveyStatus, review.Status).ToString(),
         equipment.CreatedByUserId,
         equipment.CreatedAt,
         equipment.UpdatedAt,
@@ -372,9 +838,20 @@ public class SurveyorController(SurveyDbContext db) : ControllerBase
     private sealed record EquipmentReviewInfo(
         Guid EquipmentId,
         Guid InspectionId,
+        SurveyStatus SurveyStatus,
         QcReviewStatus Status,
         string? Comments,
         QcSeverity? Severity);
+
+    private sealed record EquipmentContext(AreaEquipment Equipment, ProjectArea Area, Project Project);
+    private sealed record InspectionContext(SurveySession Inspection, AreaEquipment Equipment, Project Project);
+    private sealed record InspectionInfo(
+        Guid InspectionId,
+        SurveyStatus SurveyStatus,
+        QcReviewStatus? QcStatus,
+        string? QcComments,
+        QcSeverity? QcSeverity);
+    private sealed record InspectionValidationResult(BadRequestObjectResult? Error);
 
     private enum ProjectAccess { Allowed, NotFound, Forbidden }
 }
