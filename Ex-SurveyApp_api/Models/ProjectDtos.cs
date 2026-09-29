@@ -1,5 +1,4 @@
 using System.ComponentModel.DataAnnotations;
-using Microsoft.AspNetCore.Http;
 
 namespace Ex_SurveyApp_api.Models;
 
@@ -59,8 +58,25 @@ public record ProjectAreaResponse(
     Guid Id,
     Guid ProjectId,
     string AreaName,
+    string? LayoutImagePath,
     DateTimeOffset CreatedAt,
-    IReadOnlyCollection<ProjectAreaPhotoResponse> Photos);
+    int EquipmentCount,
+    IReadOnlyCollection<ProjectAreaPhotoResponse> Photos,
+    IReadOnlyCollection<ProjectAreaEquipmentResponse> Equipment);
+
+public record ProjectAreaEquipmentResponse(
+    Guid Id,
+    int SequenceNo,
+    decimal XPercent,
+    decimal YPercent,
+    string TagNumber,
+    string? EquipmentCode,
+    string Type,
+    string? CircuitId,
+    string? Location,
+    string? Manufacturer,
+    string? ProtectionDetails,
+    string? CertificateNumber);
 
 public record ProjectAreaPhotoResponse(
     Guid Id,

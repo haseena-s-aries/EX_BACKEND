@@ -59,7 +59,16 @@ public record QcAreaEquipmentResponse(
     decimal XPercent,
     decimal YPercent,
     string TagNumber,
+    string? EquipmentCode,
     string Type,
+    string? CircuitId,
+    string? Location,
+    string? Manufacturer,
+    string? ProtectionDetails,
+    string? CertificateNumber,
+    Guid CreatedByUserId,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt,
     QcReviewStatus QcReviewStatus);
 
 public record QcEquipmentDetailsResponse(

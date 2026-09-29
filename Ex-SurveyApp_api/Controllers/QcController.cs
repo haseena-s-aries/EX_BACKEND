@@ -1,10 +1,10 @@
-using System.Security.Claims;
 using Ex_SurveyApp_api.Data;
 using Ex_SurveyApp_api.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
 
 namespace Ex_SurveyApp_api.Controllers;
 
@@ -158,7 +158,16 @@ public class QcController(SurveyDbContext db) : ControllerBase
                 pin.XPercent,
                 pin.YPercent,
                 pin.TagNumber,
+                pin.EquipmentCode,
                 pin.Type,
+                pin.CircuitId,
+                pin.Location,
+                pin.Manufacturer,
+                pin.ProtectionDetails,
+                pin.CertificateNumber,
+                pin.CreatedByUserId,
+                pin.CreatedAt,
+                pin.UpdatedAt,
                 inspection?.ReviewStatus ?? QcReviewStatus.PendingReview);
         }).ToArray();
 

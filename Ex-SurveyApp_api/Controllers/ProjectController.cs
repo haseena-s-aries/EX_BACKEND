@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using Ex_SurveyApp_api.Data;
 using Ex_SurveyApp_api.Models;
 using Ex_SurveyApp_api.Services;
@@ -6,6 +5,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
 
 namespace Ex_SurveyApp_api.Controllers;
 
@@ -90,6 +90,8 @@ public class ProjectController(
         var project = await AccessibleProjects()
             .Include(x => x.Areas)
             .ThenInclude(x => x.Photos)
+            .Include(x => x.Areas)
+            .ThenInclude(x => x.EquipmentPins)
             .AsSplitQuery()
             .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
         return project is null ? NotFound(new { error = "Project was not found." }) : Ok(ToResponse(project));
@@ -458,8 +460,20 @@ public class ProjectController(
         project.Areas.OrderBy(x => x.CreatedAt).Select(ToResponse).ToArray());
 
     private static ProjectAreaResponse ToResponse(ProjectArea area) => new(
-        area.Id, area.ProjectId, area.AreaName, area.CreatedAt,
-        area.Photos.OrderByDescending(x => x.UploadedAt).Select(x => ToResponse(x, area.ProjectId)).ToArray());
+        area.Id, area.ProjectId, area.AreaName, GetLayoutImagePath(area), area.CreatedAt, area.EquipmentPins.Count,
+        area.Photos.OrderByDescending(x => x.UploadedAt).Select(x => ToResponse(x, area.ProjectId)).ToArray(),
+        area.EquipmentPins.OrderBy(x => x.SequenceNo).Select(x => new ProjectAreaEquipmentResponse(
+            x.Id, x.SequenceNo, x.XPercent, x.YPercent, x.TagNumber, x.EquipmentCode, x.Type, x.CircuitId, x.Location,
+            x.Manufacturer, x.ProtectionDetails, x.CertificateNumber)).ToArray());
+
+    private static string? GetLayoutImagePath(ProjectArea area)
+    {
+        var layoutPhoto = area.Photos.FirstOrDefault(x => x.FilePath == area.LayoutImagePath)
+                          ?? area.Photos.OrderBy(x => x.UploadedAt).ThenBy(x => x.Id).FirstOrDefault();
+        return layoutPhoto is null
+            ? null
+            : $"/api/projects/{area.ProjectId}/areas/{area.Id}/photos/{layoutPhoto.Id}";
+    }
 
     private static ProjectAreaPhotoResponse ToResponse(ProjectAreaPhoto photo, Guid projectId) => new(
         photo.Id, photo.ProjectAreaId, photo.FileName, photo.FilePath,
