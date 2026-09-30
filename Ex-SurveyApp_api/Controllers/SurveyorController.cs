@@ -17,6 +17,73 @@ public class SurveyorController(
     IProjectPhotoStorage photoStorage,
     ILogger<SurveyorController> logger) : ControllerBase
 {
+    [HttpGet("dashboard")]
+    public async Task<ActionResult<SurveyorDashboardResponse>> GetDashboard(
+        CancellationToken cancellationToken)
+    {
+        var projectCounts = await db.Projects.AsNoTracking()
+            .Where(x => x.AssignedSurveyorId == CurrentUserId)
+            .GroupBy(_ => 1)
+            .Select(group => new
+            {
+                MyProjectCount = group.Count(),
+                InProgress = group.Count(x => x.Status == ProjectStatus.InProgress),
+                OnHold = group.Count(x => x.Status == ProjectStatus.OnHold),
+                NotStarted = group.Count(x => x.Status == ProjectStatus.Pending)
+            })
+            .SingleOrDefaultAsync(cancellationToken);
+
+        var reviewRows = await (
+            from inspection in db.SurveySessions.AsNoTracking()
+            join equipment in db.AreaEquipment.AsNoTracking()
+                on inspection.AreaEquipmentId equals equipment.Id
+            join project in db.Projects.AsNoTracking()
+                on equipment.ProjectId equals project.Id
+            join review in db.QcReviews.AsNoTracking()
+                on inspection.Id equals review.SurveySessionId into reviewGroup
+            from review in reviewGroup.DefaultIfEmpty()
+            where project.AssignedSurveyorId == CurrentUserId && inspection.SubmittedAt != null
+            select new { ReviewStatus = (QcReviewStatus?)review.Status })
+            .ToListAsync(cancellationToken);
+
+        var feedback = await (
+            from review in db.QcReviews.AsNoTracking()
+            join inspection in db.SurveySessions.AsNoTracking()
+                on review.SurveySessionId equals inspection.Id
+            join equipment in db.AreaEquipment.AsNoTracking()
+                on inspection.AreaEquipmentId equals equipment.Id
+            join project in db.Projects.AsNoTracking()
+                on equipment.ProjectId equals project.Id
+            join area in db.ProjectAreas.AsNoTracking()
+                on equipment.AreaId equals area.Id
+            where project.AssignedSurveyorId == CurrentUserId
+                  && review.Status == QcReviewStatus.ChangesRequested
+            orderby review.ReviewedAt descending, equipment.SequenceNo
+            select new SurveyorQcFeedbackResponse(
+                project.Id,
+                area.Id,
+                equipment.Id,
+                project.ProjectName,
+                area.AreaName,
+                equipment.SequenceNo,
+                equipment.TagNumber,
+                equipment.Type,
+                review.Comments ?? string.Empty,
+                review.Severity,
+                review.ReviewedAt))
+            .ToListAsync(cancellationToken);
+
+        return Ok(new SurveyorDashboardResponse(
+            projectCounts?.MyProjectCount ?? 0,
+            projectCounts?.InProgress ?? 0,
+            projectCounts?.OnHold ?? 0,
+            projectCounts?.NotStarted ?? 0,
+            reviewRows.Count(x => x.ReviewStatus is null or QcReviewStatus.PendingReview),
+            reviewRows.Count(x => x.ReviewStatus == QcReviewStatus.ChangesRequested),
+            reviewRows.Count(x => x.ReviewStatus == QcReviewStatus.Approved),
+            feedback));
+    }
+
     [HttpGet("projects")]
     public async Task<ActionResult<IEnumerable<SurveyorProjectSummaryResponse>>> GetProjects(
         CancellationToken cancellationToken)

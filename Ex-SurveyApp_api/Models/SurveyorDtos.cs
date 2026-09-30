@@ -3,6 +3,29 @@ using Microsoft.AspNetCore.Http;
 
 namespace Ex_SurveyApp_api.Models;
 
+public record SurveyorDashboardResponse(
+    int MyProjectCount,
+    int InProgress,
+    int OnHold,
+    int NotStarted,
+    int AwaitingQcReview,
+    int ChangesRequested,
+    int QcApproved,
+    IReadOnlyCollection<SurveyorQcFeedbackResponse> QcFeedback);
+
+public record SurveyorQcFeedbackResponse(
+    Guid ProjectId,
+    Guid AreaId,
+    Guid EquipmentId,
+    string ProjectName,
+    string AreaName,
+    int SequenceNo,
+    string TagNumber,
+    string Type,
+    string QcComments,
+    QcSeverity? Severity,
+    DateTimeOffset? ReviewedDate);
+
 public record SurveyorProjectSummaryResponse(
     Guid ProjectId,
     string ProjectName,
