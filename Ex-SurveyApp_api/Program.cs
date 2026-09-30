@@ -168,40 +168,60 @@ using (var scope = app.Services.CreateScope())
         ],
         [InspectionType.Close] =
         [
-            "Cable entries and blanking elements are secure",
-            "Fasteners are present and correctly tightened",
-            "Earth connections are secure and free of corrosion",
-            "Sealing arrangements match the equipment certification"
+            "All bolts and fasteners are tight",
+            "Cable entries are properly sealed",
+            "Covers and lids properly fitted",
+            "Grounding/bonding connections intact"
         ],
         [InspectionType.Detailed] =
         [
-            "Internal terminals are secure and undamaged",
-            "Flamepaths are clean and within permitted tolerances",
-            "Internal conductors show no overheating or insulation damage",
-            "Installed components match the approved equipment documentation"
+            "No unauthorized modifications",
+            "Flame paths clean and undamaged",
+            "No excessive paint buildup",
+            "Internal components properly mounted"
         ]
     };
 
     foreach (var (inspectionType, questions) in checklistSeed)
     {
-        if (await db.ChecklistTemplates.AnyAsync(
-                x => x.InspectionType == inspectionType && x.IsActive))
-            continue;
-
-        var template = new ChecklistTemplate
+        var templateName = $"Default {inspectionType} Inspection";
+        var template = await db.ChecklistTemplates.SingleOrDefaultAsync(
+            x => x.Name == templateName && x.InspectionType == inspectionType);
+        if (template is null)
         {
-            Name = $"Default {inspectionType} Inspection",
-            InspectionType = inspectionType
-        };
-        db.ChecklistTemplates.Add(template);
+            if (await db.ChecklistTemplates.AnyAsync(
+                    x => x.InspectionType == inspectionType && x.IsActive))
+                continue;
+
+            template = new ChecklistTemplate
+            {
+                Name = templateName,
+                InspectionType = inspectionType
+            };
+            db.ChecklistTemplates.Add(template);
+        }
+
+        var existingQuestions = await db.ChecklistQuestions
+            .Where(x => x.ChecklistTemplateId == template.Id)
+            .OrderBy(x => x.SortOrder)
+            .ToListAsync();
         for (var index = 0; index < questions.Length; index++)
         {
-            db.ChecklistQuestions.Add(new ChecklistQuestion
+            if (index < existingQuestions.Count)
             {
-                ChecklistTemplateId = template.Id,
-                Text = questions[index],
-                SortOrder = index + 1
-            });
+                existingQuestions[index].Text = questions[index];
+                existingQuestions[index].SortOrder = index + 1;
+                existingQuestions[index].IsRequired = true;
+            }
+            else
+            {
+                db.ChecklistQuestions.Add(new ChecklistQuestion
+                {
+                    ChecklistTemplateId = template.Id,
+                    Text = questions[index],
+                    SortOrder = index + 1
+                });
+            }
         }
     }
 

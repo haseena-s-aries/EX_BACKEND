@@ -1,3 +1,5 @@
+
+
 using Ex_SurveyApp_api.Data;
 using Ex_SurveyApp_api.Models;
 using Ex_SurveyApp_api.Services;
@@ -94,7 +96,24 @@ public class ProjectController(
             .ThenInclude(x => x.EquipmentPins)
             .AsSplitQuery()
             .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
-        return project is null ? NotFound(new { error = "Project was not found." }) : Ok(ToResponse(project));
+        if (project is null)
+            return NotFound(new { error = "Project was not found." });
+        var equipmentIds = project.Areas.SelectMany(x => x.EquipmentPins).Select(x => x.Id).ToArray();
+        var inspectionRows = await (
+            from inspection in db.SurveySessions.AsNoTracking()
+            where inspection.AreaEquipmentId.HasValue && equipmentIds.Contains(inspection.AreaEquipmentId.Value)
+            join review in db.QcReviews.AsNoTracking() on inspection.Id equals review.SurveySessionId into reviewGroup
+            from review in reviewGroup.DefaultIfEmpty()
+            select new
+            {
+                EquipmentId = inspection.AreaEquipmentId!.Value,
+                inspection.Status,
+                QcStatus = (QcReviewStatus?)review.Status
+            }).ToListAsync(cancellationToken);
+        var inspectionStatuses = inspectionRows.ToDictionary(
+            x => x.EquipmentId,
+            x => GetInspectionStatus(x.Status, x.QcStatus));
+        return Ok(ToResponse(project, inspectionStatuses));
     }
 
     [HttpPut("{id:guid}")]
@@ -453,19 +472,34 @@ public class ProjectController(
     private static bool IsUniqueConstraintViolation(DbUpdateException exception) =>
         exception.InnerException is SqlException { Number: 2601 or 2627 };
 
-    private static ProjectResponse ToResponse(Project project) => new(
+    private static ProjectResponse ToResponse(
+        Project project, IReadOnlyDictionary<Guid, EquipmentInspectionStatus>? inspectionStatuses = null) => new(
         project.Id, project.ProjectName, project.Sector, project.JobNo, project.Location,
         project.VesselOrSiteName, project.Status, project.AssignedSurveyorId, project.AssignedQcId,
         project.AssignedClientId, project.CreatedByUserId, project.CreatedAt, project.UpdatedAt,
-        project.Areas.OrderBy(x => x.CreatedAt).Select(ToResponse).ToArray());
+        project.Areas.OrderBy(x => x.CreatedAt).Select(area => ToResponse(area, inspectionStatuses)).ToArray());
 
-    private static ProjectAreaResponse ToResponse(ProjectArea area) => new(
+    private static ProjectAreaResponse ToResponse(
+        ProjectArea area, IReadOnlyDictionary<Guid, EquipmentInspectionStatus>? inspectionStatuses = null) => new(
         area.Id, area.ProjectId, area.AreaName, GetLayoutImagePath(area), area.CreatedAt, area.EquipmentPins.Count,
         area.Photos.OrderByDescending(x => x.UploadedAt).Select(x => ToResponse(x, area.ProjectId)).ToArray(),
         area.EquipmentPins.OrderBy(x => x.SequenceNo).Select(x => new ProjectAreaEquipmentResponse(
             x.Id, x.SequenceNo, x.XPercent, x.YPercent, x.TagNumber, x.EquipmentCode, x.Type, x.CircuitId, x.Location,
-            x.Manufacturer, x.ProtectionDetails, x.CertificateNumber)).ToArray());
+            x.Manufacturer, x.ProtectionDetails, x.CertificateNumber, x.CreatedAt,
+            inspectionStatuses is not null && inspectionStatuses.TryGetValue(x.Id, out var status)
+                ? status.ToString()
+                : EquipmentInspectionStatus.NotStarted.ToString())).ToArray());
 
+    private static EquipmentInspectionStatus GetInspectionStatus(SurveyStatus surveyStatus, QcReviewStatus? qcStatus)
+    {
+        if (qcStatus == QcReviewStatus.Approved || surveyStatus == SurveyStatus.Approved)
+            return EquipmentInspectionStatus.QcApproved;
+        if (qcStatus == QcReviewStatus.ChangesRequested || surveyStatus == SurveyStatus.Returned)
+            return EquipmentInspectionStatus.ChangesRequested;
+        return surveyStatus == SurveyStatus.Submitted
+            ? EquipmentInspectionStatus.Completed
+            : EquipmentInspectionStatus.InProgress;
+    }
     private static string? GetLayoutImagePath(ProjectArea area)
     {
         var layoutPhoto = area.Photos.FirstOrDefault(x => x.FilePath == area.LayoutImagePath)
