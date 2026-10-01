@@ -1,5 +1,6 @@
 using Ex_SurveyApp_api.Data;
 using Ex_SurveyApp_api.Models;
+using Ex_SurveyApp_api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
@@ -11,7 +12,7 @@ namespace Ex_SurveyApp_api.Controllers;
 [ApiController]
 [Authorize(Roles = nameof(UserRole.Qc))]
 [Route("api/qc")]
-public class QcController(SurveyDbContext db) : ControllerBase
+public class QcController(SurveyDbContext db, IProjectPhotoStorage photoStorage) : ControllerBase
 {
     [HttpGet("dashboard")]
     public async Task<ActionResult<QcDashboardResponse>> GetDashboard(CancellationToken cancellationToken)
@@ -186,6 +187,29 @@ public class QcController(SurveyDbContext db) : ControllerBase
             return ProjectForbidden();
 
         return Ok(await BuildInspectionResponse(context, cancellationToken));
+    }
+
+    [HttpGet("inspections/{inspectionId:guid}/photos/{photoId:guid}")]
+    public async Task<IActionResult> DownloadInspectionPhoto(
+        Guid inspectionId, Guid photoId, CancellationToken cancellationToken)
+    {
+        var context = await GetInspection(inspectionId, cancellationToken);
+        if (context is null)
+            return NotFound(new { error = "Inspection was not found." });
+        if (context.Project.AssignedQcId != CurrentUserId)
+            return ProjectForbidden();
+
+        var photo = await db.Files.AsNoTracking().SingleOrDefaultAsync(
+            x => x.Id == photoId && x.SurveySessionId == inspectionId &&
+                 (x.Category == FileCategory.EquipmentPhoto || x.Category == FileCategory.FindingPhoto),
+            cancellationToken);
+        if (photo is null)
+            return NotFound(new { error = "Inspection photo was not found." });
+
+        var content = await photoStorage.OpenReadAsync(photo.StorageKey, cancellationToken);
+        return content is null
+            ? NotFound(new { error = "Inspection photo file was not found." })
+            : File(content.Stream, content.ContentType, enableRangeProcessing: true);
     }
 
     [HttpPost("inspections/{inspectionId:guid}/start-review")]
