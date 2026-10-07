@@ -18,7 +18,7 @@ public record UpsertProjectRequest(
 
     [Required] Guid AssignedQcId,
 
-    [Required] Guid AssignedClientId,
+    Guid? AssignedClientId = null,
 
     ProjectStatus Status = ProjectStatus.Pending);
 
@@ -55,7 +55,7 @@ public record ProjectSummaryResponse(
 
     Guid AssignedQcId,
 
-    Guid AssignedClientId,
+    Guid? AssignedClientId,
 
     Guid CreatedByUserId,
 
@@ -85,7 +85,7 @@ public record ProjectResponse(
 
     Guid AssignedQcId,
 
-    Guid AssignedClientId,
+    Guid? AssignedClientId,
 
     Guid CreatedByUserId,
 
@@ -93,7 +93,10 @@ public record ProjectResponse(
 
     DateTimeOffset UpdatedAt,
 
-    IReadOnlyCollection<ProjectAreaResponse> Areas);
+    IReadOnlyCollection<ProjectAreaResponse> Areas,
+    string? HazardousAreaPlanPath = null,
+    string? HazardousAreaPlanFileName = null,
+    string? HazardousAreaPlanContentType = null);
 
 public record ProjectAreaResponse(
 
@@ -151,4 +154,6 @@ public record ProjectAssignableUserResponse(
 
     string Email,
 
-    UserRole Role);
+    UserRole Role,
+    Guid? ManagerId = null,
+    string? ManagerName = null);

@@ -115,7 +115,7 @@ public class SurveyorController(
             .AsSplitQuery()
             .SingleAsync(x => x.Id == projectId, cancellationToken);
 
-        var userIds = new[] { project.AssignedSurveyorId, project.AssignedQcId, project.AssignedClientId };
+        var userIds = new Guid?[] { project.AssignedSurveyorId, project.AssignedQcId, project.AssignedClientId };
         var names = await db.Users.AsNoTracking()
             .Where(x => userIds.Contains(x.Id))
             .ToDictionaryAsync(x => x.Id, x => x.DisplayName, cancellationToken);
@@ -125,7 +125,7 @@ public class SurveyorController(
             project.VesselOrSiteName, project.CreatedAt, project.Status,
             names.GetValueOrDefault(project.AssignedSurveyorId, string.Empty),
             names.GetValueOrDefault(project.AssignedQcId, string.Empty),
-            names.GetValueOrDefault(project.AssignedClientId, string.Empty),
+            project.AssignedClientId.HasValue ? names.GetValueOrDefault(project.AssignedClientId.Value, string.Empty) : "Not assigned",
             project.Areas.OrderBy(x => x.CreatedAt).Select(x => ToAreaSummary(projectId, x)).ToArray()));
     }
 
@@ -404,6 +404,8 @@ public class SurveyorController(
             Value = answer.IsChecked.ToString(),
             Comment = TrimOrNull(answer.Remarks)
         }));
+        if (request.IsCompleted)
+            QcWorkflowHistory.Record(db, inspection.Id, CurrentUserId, "Surveyor Submitted", comments: inspection.SurveyorRemarks);
         await db.SaveChangesAsync(cancellationToken);
 
         return StatusCode(StatusCodes.Status201Created,
@@ -429,6 +431,8 @@ public class SurveyorController(
         if (validation.Error is not null)
             return validation.Error;
 
+        var resubmission = context.Inspection.Status == SurveyStatus.Returned || review?.Status == QcReviewStatus.ChangesRequested;
+        var firstSubmission = context.Inspection.SubmittedAt == null;
         var now = DateTimeOffset.UtcNow;
         context.Inspection.InspectorName = request.InspectorName.Trim();
         context.Inspection.SurveyorRemarks = TrimOrNull(request.Comments);
@@ -466,6 +470,8 @@ public class SurveyorController(
             review.ReviewedAt = null;
         }
 
+        if (request.IsCompleted && (firstSubmission || resubmission))
+            QcWorkflowHistory.Record(db, inspectionId, CurrentUserId, resubmission ? "Surveyor Resubmitted" : "Surveyor Submitted", comments: context.Inspection.SurveyorRemarks);
         await db.SaveChangesAsync(cancellationToken);
         return Ok(await BuildInspectionResponse(context.Inspection, cancellationToken));
     }
@@ -753,17 +759,8 @@ public class SurveyorController(
             inspection?.QcSeverity);
     }
 
-    private static EquipmentInspectionStatus GetInspectionStatus(
-        SurveyStatus surveyStatus, QcReviewStatus? qcStatus)
-    {
-        if (qcStatus == QcReviewStatus.Approved || surveyStatus == SurveyStatus.Approved)
-            return EquipmentInspectionStatus.QcApproved;
-        if (qcStatus == QcReviewStatus.ChangesRequested || surveyStatus == SurveyStatus.Returned)
-            return EquipmentInspectionStatus.ChangesRequested;
-        return surveyStatus == SurveyStatus.Submitted
-            ? EquipmentInspectionStatus.Completed
-            : EquipmentInspectionStatus.InProgress;
-    }
+    private static EquipmentInspectionStatus GetInspectionStatus(SurveyStatus surveyStatus, QcReviewStatus? qcStatus) =>
+        QcWorkflowStatus.InspectionStatus(surveyStatus, qcStatus);
 
     private static bool IsInspectionLocked(SurveySession inspection, QcReview? review) =>
         inspection.Status == SurveyStatus.Approved || review?.Status == QcReviewStatus.Approved;

@@ -14,6 +14,8 @@ public record StoredProjectPhotoContent(Stream Stream, string ContentType);
 
 public interface IProjectPhotoStorage
 {
+    Task<StoredProjectPhoto> SaveHazardousAreaPlanAsync(IFormFile file, Guid projectId,
+        CancellationToken cancellationToken);
     int MaxFilesPerRequest { get; }
     Task<StoredProjectPhoto> SaveAsync(IFormFile file, Guid projectId, Guid areaId,
         CancellationToken cancellationToken);
@@ -45,6 +47,10 @@ public class ProjectPhotoStorage : IProjectPhotoStorage
 
     public int MaxFilesPerRequest => settings.MaxFilesPerRequest;
 
+    public Task<StoredProjectPhoto> SaveHazardousAreaPlanAsync(
+        IFormFile file, Guid projectId, CancellationToken cancellationToken)
+        => SaveToDirectory(file, Path.Combine("plans", projectId.ToString("N")), cancellationToken, isPlan: true);
+
     public async Task<StoredProjectPhoto> SaveAsync(IFormFile file, Guid projectId, Guid areaId,
         CancellationToken cancellationToken)
         => await SaveToDirectory(file, Path.Combine(projectId.ToString("N"), areaId.ToString("N")),
@@ -57,22 +63,30 @@ public class ProjectPhotoStorage : IProjectPhotoStorage
             cancellationToken);
 
     private async Task<StoredProjectPhoto> SaveToDirectory(
-        IFormFile file, string relativeDirectory, CancellationToken cancellationToken)
+        IFormFile file, string relativeDirectory, CancellationToken cancellationToken, bool isPlan = false)
     {
         if (file.Length <= 0)
-            throw new ProjectPhotoValidationException("Empty image files are not allowed.");
+            throw new ProjectPhotoValidationException(isPlan ? "Empty files are not allowed." : "Empty image files are not allowed.");
         if (file.Length > settings.MaxFileSizeBytes)
             throw new ProjectPhotoValidationException(
-                $"Image '{Path.GetFileName(file.FileName)}' exceeds the {settings.MaxFileSizeBytes / 1024 / 1024} MB limit.");
+                $"{(isPlan ? "File" : "Image")} '{Path.GetFileName(file.FileName)}' exceeds the {settings.MaxFileSizeBytes / 1024 / 1024} MB limit.");
 
-        var originalFileName = Path.GetFileName(file.FileName);
+        var originalFileName = Path.GetFileName(file.FileName.Replace('\\', '/'));
         if (string.IsNullOrWhiteSpace(originalFileName) || originalFileName.Length > 255)
             throw new ProjectPhotoValidationException("Image filenames must contain 1 to 255 characters.");
 
         var extension = Path.GetExtension(originalFileName).ToLowerInvariant();
         var hasSupportedContentType = file.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) ||
                                       file.ContentType.Equals("application/octet-stream", StringComparison.OrdinalIgnoreCase);
-        if (!AllowedExtensions.Contains(extension) || !hasSupportedContentType)
+        if (isPlan)
+        {
+            var expectedType = extension == ".pdf" ? "application/pdf" : "image/jpeg";
+            if (extension is not (".jpg" or ".jpeg" or ".pdf") ||
+                !(file.ContentType.Equals(expectedType, StringComparison.OrdinalIgnoreCase) ||
+                  file.ContentType.Equals("application/octet-stream", StringComparison.OrdinalIgnoreCase)))
+                throw new ProjectPhotoValidationException("Only JPG, JPEG and PDF files are allowed.");
+        }
+        else if (!AllowedExtensions.Contains(extension) || !hasSupportedContentType)
             throw new ProjectPhotoValidationException("Only JPG, PNG, and WebP images are allowed.");
 
         var directory = Path.Combine(rootPath, relativeDirectory);
@@ -82,14 +96,28 @@ public class ProjectPhotoStorage : IProjectPhotoStorage
 
         await using var input = file.OpenReadStream();
         var header = new byte[12];
-        var bytesRead = await input.ReadAsync(header.AsMemory(0, header.Length), cancellationToken);
-        if (!HasValidImageSignature(header.AsSpan(0, bytesRead), extension))
+        var bytesRead = await input.ReadAtLeastAsync(header.AsMemory(), header.Length, throwOnEndOfStream: false, cancellationToken);
+        var validContent = isPlan && extension == ".pdf"
+            ? bytesRead >= 5 && header.AsSpan(0, 5).SequenceEqual("%PDF-"u8)
+            : HasValidImageSignature(header.AsSpan(0, bytesRead), extension);
+        if (!validContent)
+        {
+            if (isPlan) throw new ProjectPhotoValidationException("Only JPG, JPEG and PDF files are allowed.");
             throw new ProjectPhotoValidationException($"Image '{Path.GetFileName(file.FileName)}' has invalid file content.");
+        }
 
-        await using var output = new FileStream(absolutePath, FileMode.CreateNew, FileAccess.Write, FileShare.None,
-            81920, FileOptions.Asynchronous);
-        await output.WriteAsync(header.AsMemory(0, bytesRead), cancellationToken);
-        await input.CopyToAsync(output, cancellationToken);
+        try
+        {
+            await using var output = new FileStream(absolutePath, FileMode.CreateNew, FileAccess.Write, FileShare.None,
+                81920, FileOptions.Asynchronous);
+            await output.WriteAsync(header.AsMemory(0, bytesRead), cancellationToken);
+            await input.CopyToAsync(output, cancellationToken);
+        }
+        catch
+        {
+            if (File.Exists(absolutePath)) File.Delete(absolutePath);
+            throw;
+        }
 
         var relativePath = Path.GetRelativePath(rootPath, absolutePath).Replace('\\', '/');
         return new StoredProjectPhoto(originalFileName, relativePath);
@@ -108,6 +136,7 @@ public class ProjectPhotoStorage : IProjectPhotoStorage
             ".jpg" or ".jpeg" => "image/jpeg",
             ".png" => "image/png",
             ".webp" => "image/webp",
+            ".pdf" => "application/pdf",
             _ => "application/octet-stream"
         };
         Stream stream = new FileStream(absolutePath, FileMode.Open, FileAccess.Read, FileShare.Read,

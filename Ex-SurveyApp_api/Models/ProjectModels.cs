@@ -17,10 +17,13 @@ public class Project
     public required string JobNo { get; set; }
     public required string Location { get; set; }
     public required string VesselOrSiteName { get; set; }
+    public string? HazardousAreaPlanPath { get; set; }
+    public string? HazardousAreaPlanFileName { get; set; }
     public ProjectStatus Status { get; set; } = ProjectStatus.Pending;
     public Guid AssignedSurveyorId { get; set; }
     public Guid AssignedQcId { get; set; }
-    public Guid AssignedClientId { get; set; }
+    public User AssignedQc { get; set; } = null!;
+    public Guid? AssignedClientId { get; set; }
     public Guid CreatedByUserId { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;

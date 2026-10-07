@@ -17,7 +17,8 @@ public record QcProjectSummaryResponse(
     ProjectStatus ProjectStatus,
     QcReviewStatus QcReviewStatus,
     DateTimeOffset? SubmissionDate,
-    DateTimeOffset? DueDate);
+    DateTimeOffset? DueDate,
+    string? AssignedQcName = null);
 
 public record QcProjectDetailsResponse(
     Guid ProjectId,
@@ -125,7 +126,8 @@ public record QcEquipmentInspectionResponse(
     QcReviewStatus QcReviewStatus,
     QcSeverity? Severity,
     Guid? ReviewedByUserId,
-    DateTimeOffset? ReviewedAt);
+    DateTimeOffset? ReviewedAt,
+    string? InspectorName = null);
 
 public record QcReviewResponse(
     Guid InspectionId,

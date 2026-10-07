@@ -271,7 +271,11 @@ public class AuthController(
             });
         }
 
+        if (user.Role == UserRole.Manager && request.Role != UserRole.Manager &&
+            await db.Users.AnyAsync(x => x.ManagerId == userId, cancellationToken))
+            return Conflict(new { error = "Reassign reporting QC users before changing this Manager's role." });
         user.Role = request.Role.Value;
+        if (user.Role != UserRole.Qc) user.ManagerId = null;
         await db.SaveChangesAsync(cancellationToken);
         return Ok(ToManagedResponse(user));
     }
@@ -503,6 +507,9 @@ public class AuthController(
         Guid userId, CancellationToken cancellationToken)
     {
         var dependencies = new List<string>();
+
+        if (await db.Users.AsNoTracking().AnyAsync(x => x.ManagerId == userId, cancellationToken))
+            dependencies.Add("QC users reporting to this Manager");
 
         if (await db.Users.AsNoTracking().AnyAsync(
                 x => x.ApprovalReviewedByUserId == userId, cancellationToken))

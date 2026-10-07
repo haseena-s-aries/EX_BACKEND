@@ -18,6 +18,8 @@ public class User
     public required string DisplayName { get; set; }
     public required string PasswordHash { get; set; }
     public UserRole Role { get; set; }
+    public Guid? ManagerId { get; set; }
+    public User? Manager { get; set; }
     public ApprovalStatus ApprovalStatus { get; set; } = ApprovalStatus.Pending;
     public Guid? ApprovalReviewedByUserId { get; set; }
     public DateTimeOffset? ApprovalReviewedAt { get; set; }
@@ -185,6 +187,11 @@ public class AuditLog
     public required string EntityType { get; set; }
     public Guid EntityId { get; set; }
     public required string Action { get; set; }
+    public string? Comments { get; set; }
+    public QcSeverity? Severity { get; set; }
+    public QcReviewStatus? QcStatus { get; set; }
+    public DateTimeOffset? ReviewStartedAt { get; set; }
+    public DateTimeOffset? ReviewedAt { get; set; }
     public DateTimeOffset OccurredAt { get; set; } = DateTimeOffset.UtcNow;
 }
 

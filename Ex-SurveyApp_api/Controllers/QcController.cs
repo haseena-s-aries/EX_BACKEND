@@ -10,7 +10,7 @@ using System.Security.Claims;
 namespace Ex_SurveyApp_api.Controllers;
 
 [ApiController]
-[Authorize(Roles = nameof(UserRole.Qc))]
+[Authorize(Roles = "Qc,Manager,Admin")]
 [Route("api/qc")]
 public class QcController(SurveyDbContext db, IProjectPhotoStorage photoStorage) : ControllerBase
 {
@@ -29,12 +29,15 @@ public class QcController(SurveyDbContext db, IProjectPhotoStorage photoStorage)
 
     [HttpGet("projects")]
     public async Task<ActionResult<IEnumerable<QcProjectSummaryResponse>>> GetProjects(
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, [FromQuery] bool pendingOnly = false)
     {
+        var scopedProjects = AccessibleProjects();
+        if (pendingOnly)
+            scopedProjects = scopedProjects.Where(p => OpenInspectionProjectIds().Contains(p.Id));
         var projects = await (
-            from project in db.Projects.AsNoTracking()
+            from project in scopedProjects
             join surveyor in db.Users.AsNoTracking() on project.AssignedSurveyorId equals surveyor.Id
-            where project.AssignedQcId == CurrentUserId
+            join assignedQc in db.Users.AsNoTracking() on project.AssignedQcId equals assignedQc.Id
             orderby project.UpdatedAt descending
             select new
             {
@@ -43,6 +46,7 @@ public class QcController(SurveyDbContext db, IProjectPhotoStorage photoStorage)
                 project.JobNo,
                 project.Location,
                 SurveyorName = surveyor.DisplayName,
+                AssignedQcName = assignedQc.DisplayName,
                 project.Status
             }).ToListAsync(cancellationToken);
 
@@ -60,7 +64,7 @@ public class QcController(SurveyDbContext db, IProjectPhotoStorage photoStorage)
                 project.Status,
                 AggregateStatus(projectReviews),
                 projectReviews.Select(x => x.SubmittedAt).Where(x => x.HasValue).Max(),
-                EarliestOpenDueDate(projectReviews));
+                EarliestOpenDueDate(projectReviews), project.AssignedQcName);
         });
 
         return Ok(response);
@@ -79,10 +83,10 @@ public class QcController(SurveyDbContext db, IProjectPhotoStorage photoStorage)
             .SingleOrDefaultAsync(x => x.Id == projectId, cancellationToken);
         if (project is null)
             return NotFound(new { error = "Project was not found." });
-        if (project.AssignedQcId != CurrentUserId)
+        if (!await CanAccessProject(project.Id, cancellationToken))
             return ProjectForbidden();
 
-        var userIds = new[] { project.AssignedSurveyorId, project.AssignedQcId, project.AssignedClientId };
+        var userIds = new Guid?[] { project.AssignedSurveyorId, project.AssignedQcId, project.AssignedClientId };
         var names = await db.Users.AsNoTracking()
             .Where(x => userIds.Contains(x.Id))
             .ToDictionaryAsync(x => x.Id, x => x.DisplayName, cancellationToken);
@@ -112,7 +116,7 @@ public class QcController(SurveyDbContext db, IProjectPhotoStorage photoStorage)
             project.CreatedAt,
             names.GetValueOrDefault(project.AssignedSurveyorId, string.Empty),
             names.GetValueOrDefault(project.AssignedQcId, string.Empty),
-            names.GetValueOrDefault(project.AssignedClientId, string.Empty),
+            project.AssignedClientId.HasValue ? names.GetValueOrDefault(project.AssignedClientId.Value, string.Empty) : "Not assigned",
             areas,
             project.Areas.Sum(x => x.EquipmentPins.Count),
             CountStatus(reviews, QcReviewStatus.PendingReview),
@@ -183,7 +187,7 @@ public class QcController(SurveyDbContext db, IProjectPhotoStorage photoStorage)
         var context = await GetInspectionByEquipment(equipmentId, cancellationToken);
         if (context is null)
             return NotFound(new { error = "A submitted inspection was not found for this equipment." });
-        if (context.Project.AssignedQcId != CurrentUserId)
+        if (!await CanAccessProject(context.Project.Id, cancellationToken))
             return ProjectForbidden();
 
         return Ok(await BuildInspectionResponse(context, cancellationToken));
@@ -196,7 +200,7 @@ public class QcController(SurveyDbContext db, IProjectPhotoStorage photoStorage)
         var context = await GetInspection(inspectionId, cancellationToken);
         if (context is null)
             return NotFound(new { error = "Inspection was not found." });
-        if (context.Project.AssignedQcId != CurrentUserId)
+        if (!await CanAccessProject(context.Project.Id, cancellationToken))
             return ProjectForbidden();
 
         var photo = await db.Files.AsNoTracking().SingleOrDefaultAsync(
@@ -219,7 +223,7 @@ public class QcController(SurveyDbContext db, IProjectPhotoStorage photoStorage)
         var context = await GetInspection(inspectionId, cancellationToken);
         if (context is null)
             return NotFound(new { error = "Inspection was not found." });
-        if (context.Project.AssignedQcId != CurrentUserId)
+        if (!await CanAccessProject(context.Project.Id, cancellationToken))
             return ProjectForbidden();
         if (context.Inspection.Status != SurveyStatus.Submitted)
             return Conflict(new { error = "Only a submitted inspection can enter QC review." });
@@ -236,6 +240,7 @@ public class QcController(SurveyDbContext db, IProjectPhotoStorage photoStorage)
         review.ReviewedByUserId = CurrentUserId;
         review.StartedAt = DateTimeOffset.UtcNow;
         review.ReviewedAt = null;
+        QcWorkflowHistory.Record(db, inspectionId, CurrentUserId, "QC Started Review", review);
         await db.SaveChangesAsync(cancellationToken);
         return Ok(ToReviewResponse(review));
     }
@@ -249,7 +254,7 @@ public class QcController(SurveyDbContext db, IProjectPhotoStorage photoStorage)
         var context = await GetInspection(inspectionId, cancellationToken);
         if (context is null)
             return NotFound(new { error = "Inspection was not found." });
-        if (context.Project.AssignedQcId != CurrentUserId)
+        if (!await CanAccessProject(context.Project.Id, cancellationToken))
             return ProjectForbidden();
 
         var review = await db.QcReviews.SingleOrDefaultAsync(
@@ -265,6 +270,7 @@ public class QcController(SurveyDbContext db, IProjectPhotoStorage photoStorage)
         if (!string.IsNullOrWhiteSpace(request?.Comments))
             review.Comments = request.Comments.Trim();
         context.Inspection.Status = SurveyStatus.Approved;
+        QcWorkflowHistory.Record(db, inspectionId, CurrentUserId, "QC Approved", review);
         await db.SaveChangesAsync(cancellationToken);
         return Ok(ToReviewResponse(review));
     }
@@ -281,7 +287,7 @@ public class QcController(SurveyDbContext db, IProjectPhotoStorage photoStorage)
         var context = await GetInspection(inspectionId, cancellationToken);
         if (context is null)
             return NotFound(new { error = "Inspection was not found." });
-        if (context.Project.AssignedQcId != CurrentUserId)
+        if (!await CanAccessProject(context.Project.Id, cancellationToken))
             return ProjectForbidden();
 
         var review = await db.QcReviews.SingleOrDefaultAsync(
@@ -297,6 +303,7 @@ public class QcController(SurveyDbContext db, IProjectPhotoStorage photoStorage)
         review.ReviewedByUserId = CurrentUserId;
         review.ReviewedAt = DateTimeOffset.UtcNow;
         context.Inspection.Status = SurveyStatus.Returned;
+        QcWorkflowHistory.Record(db, inspectionId, CurrentUserId, "QC Requested Changes", review);
         await db.SaveChangesAsync(cancellationToken);
         return Ok(ToReviewResponse(review));
     }
@@ -311,7 +318,7 @@ public class QcController(SurveyDbContext db, IProjectPhotoStorage photoStorage)
         var context = await GetInspection(inspectionId, cancellationToken);
         if (context is null)
             return NotFound(new { error = "Inspection was not found." });
-        if (context.Project.AssignedQcId != CurrentUserId)
+        if (!await CanAccessProject(context.Project.Id, cancellationToken))
             return ProjectForbidden();
 
         var review = await db.QcReviews.SingleOrDefaultAsync(
@@ -322,6 +329,7 @@ public class QcController(SurveyDbContext db, IProjectPhotoStorage photoStorage)
         review ??= CreateReview(inspectionId);
         review.Comments = request.Comments.Trim();
         review.ReviewedByUserId = CurrentUserId;
+        QcWorkflowHistory.Record(db, inspectionId, CurrentUserId, "QC Comments Updated", review);
         await db.SaveChangesAsync(cancellationToken);
         return Ok(ToReviewResponse(review));
     }
@@ -329,10 +337,10 @@ public class QcController(SurveyDbContext db, IProjectPhotoStorage photoStorage)
     private IQueryable<DashboardInspectionRow> SubmittedInspectionsForCurrentQc() =>
         from inspection in db.SurveySessions.AsNoTracking()
         join equipment in db.AreaEquipment.AsNoTracking() on inspection.AreaEquipmentId equals equipment.Id
-        join project in db.Projects.AsNoTracking() on equipment.ProjectId equals project.Id
+        join project in AccessibleProjects() on equipment.ProjectId equals project.Id
         join review in db.QcReviews.AsNoTracking() on inspection.Id equals review.SurveySessionId into reviewGroup
         from review in reviewGroup.DefaultIfEmpty()
-        where project.AssignedQcId == CurrentUserId && inspection.SubmittedAt != null
+        where inspection.SubmittedAt != null
         select new DashboardInspectionRow(inspection.DueDate, review == null ? null : review.Status);
 
     private async Task<List<ReviewSnapshot>> LoadReviewSnapshots(
@@ -378,65 +386,8 @@ public class QcController(SurveyDbContext db, IProjectPhotoStorage photoStorage)
             select new InspectionContext(inspection, equipment, project))
             .SingleOrDefaultAsync(cancellationToken);
 
-    private async Task<QcEquipmentInspectionResponse> BuildInspectionResponse(
-        InspectionContext context, CancellationToken cancellationToken)
-    {
-        var review = await db.QcReviews.AsNoTracking().SingleOrDefaultAsync(
-            x => x.SurveySessionId == context.Inspection.Id, cancellationToken);
-        var answers = await (
-            from answer in db.SurveyAnswers.AsNoTracking()
-            join question in db.ChecklistQuestions.AsNoTracking() on answer.ChecklistQuestionId equals question.Id
-            where answer.SurveySessionId == context.Inspection.Id
-            orderby question.SortOrder
-            select new QcChecklistAnswerResponse(
-                answer.Id, question.Id, question.Text, question.SortOrder, answer.Value, answer.Comment))
-            .ToListAsync(cancellationToken);
-        var photos = await db.Files.AsNoTracking()
-            .Where(x => x.SurveySessionId == context.Inspection.Id &&
-                        (x.Category == FileCategory.EquipmentPhoto || x.Category == FileCategory.FindingPhoto))
-            .OrderBy(x => x.UploadedAt)
-            .Select(x => new QcInspectionPhotoResponse(
-                x.Id, x.FileName, x.StorageKey, x.ContentType, x.UploadedAt))
-            .ToListAsync(cancellationToken);
-        var findings = await db.Findings.AsNoTracking()
-            .Where(x => x.SurveySessionId == context.Inspection.Id)
-            .Select(x => new QcFindingResponse(
-                x.Id, x.Observation, x.Recommendation, x.Severity, x.Status))
-            .ToListAsync(cancellationToken);
-
-        var equipment = context.Equipment;
-        return new QcEquipmentInspectionResponse(
-            context.Inspection.Id,
-            context.Project.Id,
-            equipment.AreaId,
-            new QcEquipmentDetailsResponse(
-                equipment.Id,
-                equipment.SequenceNo,
-                equipment.XPercent,
-                equipment.YPercent,
-                equipment.TagNumber,
-                equipment.EquipmentCode,
-                equipment.Type,
-                equipment.CircuitId,
-                equipment.Location,
-                equipment.Manufacturer,
-                equipment.ProtectionDetails,
-                equipment.CertificateNumber),
-            answers,
-            photos,
-            findings,
-            context.Inspection.SurveyorRemarks,
-            equipment.CertificateNumber,
-            equipment.ProtectionDetails,
-            context.Inspection.InspectionTimestamp ?? context.Inspection.SubmittedAt,
-            context.Inspection.SubmittedAt,
-            context.Inspection.DueDate,
-            review?.Comments,
-            review?.Status ?? QcReviewStatus.PendingReview,
-            review?.Severity,
-            review?.ReviewedByUserId,
-            review?.ReviewedAt);
-    }
+    private Task<QcEquipmentInspectionResponse> BuildInspectionResponse(InspectionContext context, CancellationToken cancellationToken) =>
+        new QcInspectionReader(db).BuildInspectionResponse(context.Inspection, context.Equipment, context.Project, cancellationToken);
 
     private QcReview CreateReview(Guid inspectionId)
     {
@@ -452,13 +403,9 @@ public class QcController(SurveyDbContext db, IProjectPhotoStorage photoStorage)
     private async Task<ProjectAccess> CheckProjectAccess(
         Guid projectId, CancellationToken cancellationToken)
     {
-        var assignedQcId = await db.Projects.AsNoTracking()
-            .Where(x => x.Id == projectId)
-            .Select(x => (Guid?)x.AssignedQcId)
-            .SingleOrDefaultAsync(cancellationToken);
-        if (!assignedQcId.HasValue)
+        if (!await db.Projects.AsNoTracking().AnyAsync(p => p.Id == projectId, cancellationToken))
             return ProjectAccess.NotFound;
-        return assignedQcId == CurrentUserId ? ProjectAccess.Allowed : ProjectAccess.Forbidden;
+        return await CanAccessProject(projectId, cancellationToken) ? ProjectAccess.Allowed : ProjectAccess.Forbidden;
     }
 
     private ObjectResult ProjectAccessError(ProjectAccess access) => access == ProjectAccess.NotFound
@@ -467,7 +414,7 @@ public class QcController(SurveyDbContext db, IProjectPhotoStorage photoStorage)
 
     private ObjectResult ProjectForbidden() => StatusCode(
         StatusCodes.Status403Forbidden,
-        new { error = "This project is assigned to another QC user." });
+        new { error = "This project is outside your QC assignment scope." });
 
     private ConflictObjectResult ReviewLocked() =>
         Conflict(new { error = "This QC review is approved and locked." });
@@ -484,18 +431,8 @@ public class QcController(SurveyDbContext db, IProjectPhotoStorage photoStorage)
     private static int CountStatus(IEnumerable<ReviewSnapshot> rows, QcReviewStatus status) =>
         rows.Count(x => x.Status == status);
 
-    private static QcReviewStatus AggregateStatus(IReadOnlyCollection<ReviewSnapshot> reviews)
-    {
-        if (reviews.Count == 0)
-            return QcReviewStatus.PendingReview;
-        if (reviews.Any(x => x.Status == QcReviewStatus.ChangesRequested))
-            return QcReviewStatus.ChangesRequested;
-        if (reviews.Any(x => x.Status == QcReviewStatus.InReview))
-            return QcReviewStatus.InReview;
-        return reviews.All(x => x.Status == QcReviewStatus.Approved)
-            ? QcReviewStatus.Approved
-            : QcReviewStatus.PendingReview;
-    }
+    private static QcReviewStatus AggregateStatus(IReadOnlyCollection<ReviewSnapshot> reviews) =>
+        QcWorkflowStatus.Aggregate(reviews.Select(r => r.Status));
 
     private static DateTimeOffset? EarliestOpenDueDate(IEnumerable<ReviewSnapshot> reviews) =>
         reviews.Where(x => x.Status != QcReviewStatus.Approved && x.DueDate.HasValue)
@@ -510,6 +447,32 @@ public class QcController(SurveyDbContext db, IProjectPhotoStorage photoStorage)
             ? null
             : $"/api/projects/{projectId}/areas/{area.Id}/photos/{layoutPhoto.Id}";
     }
+
+    // One scope for every QC read/action, including authenticated inspection photos.
+    private IQueryable<Project> AccessibleProjects()
+    {
+        var projects = db.Projects.AsNoTracking();
+        if (User.IsInRole(nameof(UserRole.Admin))) return projects;
+        if (User.IsInRole(nameof(UserRole.Manager)))
+            return projects.Where(p => p.AssignedQc.ManagerId == CurrentUserId);
+        if (User.IsInRole(nameof(UserRole.Qc)))
+            return projects.Where(p => p.AssignedQcId == CurrentUserId);
+        return projects.Where(p => false);
+    }
+
+    private IQueryable<Guid> OpenInspectionProjectIds() =>
+        from inspection in db.SurveySessions.AsNoTracking()
+        join equipment in db.AreaEquipment.AsNoTracking() on inspection.AreaEquipmentId equals equipment.Id
+        join review in db.QcReviews.AsNoTracking() on inspection.Id equals review.SurveySessionId into reviews
+        from review in reviews.DefaultIfEmpty()
+        where inspection.SubmittedAt != null &&
+            (inspection.Status == SurveyStatus.Submitted || inspection.Status == SurveyStatus.Returned) &&
+            (review == null || review.Status == QcReviewStatus.PendingReview ||
+             review.Status == QcReviewStatus.InReview || review.Status == QcReviewStatus.ChangesRequested)
+        select equipment.ProjectId;
+
+    private Task<bool> CanAccessProject(Guid projectId, CancellationToken ct) =>
+        AccessibleProjects().AnyAsync(p => p.Id == projectId, ct);
 
     private Guid CurrentUserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 

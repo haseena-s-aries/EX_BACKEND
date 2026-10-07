@@ -139,6 +139,10 @@ namespace Ex_SurveyApp_api.Migrations
                     b.Property<Guid?>("ActorId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("Comments")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
                     b.Property<Guid>("EntityId")
                         .HasColumnType("uniqueidentifier");
 
@@ -149,9 +153,23 @@ namespace Ex_SurveyApp_api.Migrations
                     b.Property<DateTimeOffset>("OccurredAt")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<int?>("QcStatus")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset?>("ReviewStartedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("ReviewedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int?>("Severity")
+                        .HasColumnType("int");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ActorId");
+
+                    b.HasIndex("EntityId", "OccurredAt");
 
                     b.ToTable("AuditLogs");
                 });
@@ -365,7 +383,7 @@ namespace Ex_SurveyApp_api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<Guid>("AssignedClientId")
+                    b.Property<Guid?>("AssignedClientId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("AssignedQcId")
@@ -379,6 +397,14 @@ namespace Ex_SurveyApp_api.Migrations
 
                     b.Property<Guid>("CreatedByUserId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("HazardousAreaPlanFileName")
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<string>("HazardousAreaPlanPath")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
 
                     b.Property<string>("JobNo")
                         .IsRequired()
@@ -802,6 +828,9 @@ namespace Ex_SurveyApp_api.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
 
+                    b.Property<Guid?>("ManagerId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("PasswordHash")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -815,6 +844,8 @@ namespace Ex_SurveyApp_api.Migrations
 
                     b.HasIndex("Email")
                         .IsUnique();
+
+                    b.HasIndex("ManagerId");
 
                     b.ToTable("Users");
                 });
@@ -913,10 +944,9 @@ namespace Ex_SurveyApp_api.Migrations
                     b.HasOne("Ex_SurveyApp_api.Models.User", null)
                         .WithMany()
                         .HasForeignKey("AssignedClientId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                    b.HasOne("Ex_SurveyApp_api.Models.User", "AssignedQc")
                         .WithMany()
                         .HasForeignKey("AssignedQcId")
                         .OnDelete(DeleteBehavior.Restrict)
@@ -933,6 +963,8 @@ namespace Ex_SurveyApp_api.Migrations
                         .HasForeignKey("CreatedByUserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.Navigation("AssignedQc");
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.ProjectArea", b =>
@@ -1081,6 +1113,13 @@ namespace Ex_SurveyApp_api.Migrations
                         .WithMany()
                         .HasForeignKey("ApprovalReviewedByUserId")
                         .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ex_SurveyApp_api.Models.User", "Manager")
+                        .WithMany()
+                        .HasForeignKey("ManagerId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Manager");
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.Project", b =>

@@ -27,15 +27,14 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AllowFrontend", policy =>
     {
         policy.WithOrigins(
-                "http://localhost:3000",   // React Native Web (Chrome)
-                "http://10.0.2.2:3000"      // Android emulator, if needed
-              )
+                allowedOrigins.Concat(new[] {"http://localhost:3000", "http://10.0.2.2:3000"}).Distinct().ToArray())
               .AllowAnyHeader()
               .AllowAnyMethod();
     });
 });
 builder.Services.AddSwaggerGen(options =>
 {
+    ProjectUploadOpenApi.Configure(options);
     options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         Name = "Authorization",
@@ -238,10 +237,9 @@ if (app.Environment.IsDevelopment())
 if (!app.Environment.IsDevelopment())
     app.UseHttpsRedirection();
 
-app.UseCors("Frontend");
+app.UseCors("AllowFrontend");
 app.UseAuthentication();
 app.UseAuthorization();
-app.UseCors("AllowFrontend");
 app.MapControllers();
 
 app.Run();

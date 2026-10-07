@@ -30,6 +30,10 @@ public class SurveyDbContext(DbContextOptions<SurveyDbContext> options) : DbCont
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<User>().HasIndex(x => x.Email).IsUnique();
+        modelBuilder.Entity<User>().HasOne(x => x.Manager).WithMany()
+            .HasForeignKey(x => x.ManagerId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<AuditLog>().Property(x => x.Comments).HasMaxLength(4000);
+        modelBuilder.Entity<AuditLog>().HasIndex(x => new { x.EntityId, x.OccurredAt });
         modelBuilder.Entity<User>()
             .HasOne<User>()
             .WithMany()
@@ -44,9 +48,11 @@ public class SurveyDbContext(DbContextOptions<SurveyDbContext> options) : DbCont
         modelBuilder.Entity<Project>().Property(x => x.JobNo).HasMaxLength(100);
         modelBuilder.Entity<Project>().Property(x => x.Location).HasMaxLength(300);
         modelBuilder.Entity<Project>().Property(x => x.VesselOrSiteName).HasMaxLength(200);
+        modelBuilder.Entity<Project>().Property(x => x.HazardousAreaPlanPath).HasMaxLength(500);
+        modelBuilder.Entity<Project>().Property(x => x.HazardousAreaPlanFileName).HasMaxLength(255);
         modelBuilder.Entity<Project>().HasIndex(x => x.JobNo).IsUnique();
         modelBuilder.Entity<Project>().HasOne<User>().WithMany().HasForeignKey(x => x.AssignedSurveyorId).OnDelete(DeleteBehavior.Restrict);
-        modelBuilder.Entity<Project>().HasOne<User>().WithMany().HasForeignKey(x => x.AssignedQcId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<Project>().HasOne(x => x.AssignedQc).WithMany().HasForeignKey(x => x.AssignedQcId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<Project>().HasOne<User>().WithMany().HasForeignKey(x => x.AssignedClientId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<Project>().HasOne<User>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<ProjectArea>().Property(x => x.AreaName).HasMaxLength(200);
