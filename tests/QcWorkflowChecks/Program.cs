@@ -10,6 +10,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 
 var ct = CancellationToken.None;
+if (args.Contains("--report-checks")) {await ReportChecks.Run(); return;}
+if (args.Contains("--report-sql")) {await ReportChecks.SqlPreview(); return;}
 if (args.Contains("--verify-sql") || args.Contains("--repair-sole-reporting-link"))
 {
     await SqlAssignmentVerification.Run(args.Contains("--repair-sole-reporting-link"));

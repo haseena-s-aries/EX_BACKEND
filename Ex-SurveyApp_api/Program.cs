@@ -114,8 +114,13 @@ var app = builder.Build();
 var adminEmail = app.Configuration["BootstrapAdmin:Email"];
 var adminPassword = app.Configuration["BootstrapAdmin:Password"];
 var adminDisplayName = app.Configuration["BootstrapAdmin:DisplayName"] ?? "Administrator";
+var managerEmail = app.Configuration["BootstrapManager:Email"];
+var managerPassword = app.Configuration["BootstrManager:Password"];
+var managerDisplayName = app.Configuration["BootstrapManager:DisplayName"] ?? "Manager";
 if (string.IsNullOrWhiteSpace(adminEmail) != string.IsNullOrWhiteSpace(adminPassword))
     throw new InvalidOperationException("BootstrapAdmin:Email and BootstrapAdmin:Password must both be set.");
+if (string.IsNullOrWhiteSpace(adminEmail) != string.IsNullOrWhiteSpace(adminPassword))
+    throw new InvalidOperationException("BootstrapManager:Email and BootstrapManager:Password must both be set.");
 if (!string.IsNullOrWhiteSpace(adminEmail) && !string.IsNullOrWhiteSpace(adminPassword))
 {
     using var scope = app.Services.CreateScope();
