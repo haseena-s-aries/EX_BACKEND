@@ -24,7 +24,7 @@ public class ProjectController(
     [Authorize(Roles = "Admin,Manager")]
     public async Task<ActionResult<ProjectResponse>> CreateProject(
         UpsertProjectRequest request, CancellationToken cancellationToken)
-        => await CreateProjectCore(request, null, cancellationToken);
+        => await CreateProjectCore(request, null, null, cancellationToken);
 
     [HttpPost]
     [Consumes("multipart/form-data")]
@@ -32,11 +32,11 @@ public class ProjectController(
     [RequestSizeLimit(220_000_000)]
     public Task<ActionResult<ProjectResponse>> CreateProjectWithPlan(
         [FromForm] UpsertProjectRequest request, [FromForm] IFormFile? hazardousAreaPlan,
-        CancellationToken cancellationToken)
-        => CreateProjectCore(request, hazardousAreaPlan, cancellationToken);
+        CancellationToken cancellationToken, [FromForm] IFormFile? clientLogo = null)
+        => CreateProjectCore(request, hazardousAreaPlan, clientLogo, cancellationToken);
 
     private async Task<ActionResult<ProjectResponse>> CreateProjectCore(
-        UpsertProjectRequest request, IFormFile? plan, CancellationToken cancellationToken)
+        UpsertProjectRequest request, IFormFile? plan, IFormFile? logo, CancellationToken cancellationToken)
     {
         var validationError = await ValidateProjectRequest(request, null, cancellationToken);
         if (validationError is not null)
@@ -58,10 +58,16 @@ public class ProjectController(
             CreatedAt = now,
             UpdatedAt = now
         };
-        if (plan is not null)
-        {
-            try { await SavePlan(project, plan, cancellationToken); }
-            catch (ProjectPhotoValidationException ex) { return BadRequest(new { error = ex.Message }); }
+        ApplyMetadata(project, request);
+        await LoadCompany(project, cancellationToken);
+        try {
+            if (plan is not null) await SavePlan(project, plan, cancellationToken);
+            if (logo is not null) project.ClientLogoPath = (await photoStorage.SaveClientLogoAsync(logo, project.Id, cancellationToken)).RelativePath;
+        }
+        catch (Exception ex) {
+            await DeleteStoredPhotos(new[] {project.HazardousAreaPlanPath, project.ClientLogoPath}.OfType<string>());
+            if (ex is ProjectPhotoValidationException) return BadRequest(new {error = ex.Message});
+            throw;
         }
         db.Projects.Add(project);
 
@@ -71,12 +77,12 @@ public class ProjectController(
         }
         catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
         {
-            if (project.HazardousAreaPlanPath is not null) await DeleteStoredPhotos([project.HazardousAreaPlanPath]);
+            await DeleteStoredPhotos(new[] {project.HazardousAreaPlanPath, project.ClientLogoPath}.OfType<string>());
             return Conflict(new { error = "JobNo already exists." });
         }
         catch
         {
-            if (project.HazardousAreaPlanPath is not null) await DeleteStoredPhotos([project.HazardousAreaPlanPath]);
+            await DeleteStoredPhotos(new[] {project.HazardousAreaPlanPath, project.ClientLogoPath}.OfType<string>());
             throw;
         }
 
@@ -116,6 +122,7 @@ public class ProjectController(
     public async Task<ActionResult<ProjectResponse>> GetProject(Guid id, CancellationToken cancellationToken)
     {
         var project = await AccessibleProjects()
+            .Include(x => x.OurCompany)
             .Include(x => x.Areas)
             .ThenInclude(x => x.Photos)
             .Include(x => x.Areas)
@@ -147,7 +154,7 @@ public class ProjectController(
     [Authorize(Roles = "Admin,Manager")]
     public async Task<ActionResult<ProjectResponse>> UpdateProject(
         Guid id, UpsertProjectRequest request, CancellationToken cancellationToken)
-        => await UpdateProjectCore(id, request, null, cancellationToken);
+        => await UpdateProjectCore(id, request, null, null, cancellationToken);
 
     [HttpPut("{id:guid}")]
     [Consumes("multipart/form-data")]
@@ -155,11 +162,11 @@ public class ProjectController(
     [RequestSizeLimit(220_000_000)]
     public Task<ActionResult<ProjectResponse>> UpdateProjectWithPlan(
         Guid id, [FromForm] UpsertProjectRequest request, [FromForm] IFormFile? hazardousAreaPlan,
-        CancellationToken cancellationToken)
-        => UpdateProjectCore(id, request, hazardousAreaPlan, cancellationToken);
+        CancellationToken cancellationToken, [FromForm] IFormFile? clientLogo = null)
+        => UpdateProjectCore(id, request, hazardousAreaPlan, clientLogo, cancellationToken);
 
     private async Task<ActionResult<ProjectResponse>> UpdateProjectCore(
-        Guid id, UpsertProjectRequest request, IFormFile? plan, CancellationToken cancellationToken)
+        Guid id, UpsertProjectRequest request, IFormFile? plan, IFormFile? logo, CancellationToken cancellationToken)
     {
         var project = await db.Projects.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (project is null)
@@ -171,11 +178,19 @@ public class ProjectController(
 
         var previousPlan = project.HazardousAreaPlanPath;
         var previousFileName = project.HazardousAreaPlanFileName;
-        if (plan is not null)
-        {
-            try { await SavePlan(project, plan, cancellationToken); }
-            catch (ProjectPhotoValidationException ex) { return BadRequest(new { error = ex.Message }); }
+        var previousLogo = project.ClientLogoPath;
+        try {
+            if (plan is not null) await SavePlan(project, plan, cancellationToken);
+            if (logo is not null) project.ClientLogoPath = (await photoStorage.SaveClientLogoAsync(logo, project.Id, cancellationToken)).RelativePath;
+            else if (request.RemoveClientLogo) project.ClientLogoPath = null;
         }
+        catch (Exception ex) {
+            await RollBackPlan();
+            if (ex is ProjectPhotoValidationException) return BadRequest(new {error = ex.Message});
+            throw;
+        }
+        ApplyMetadata(project, request);
+        await LoadCompany(project, cancellationToken);
         project.ProjectName = request.ProjectName.Trim().ToUpperInvariant();
         project.Sector = request.Sector.Trim();
         project.JobNo = request.JobNo.Trim().ToUpperInvariant();
@@ -198,12 +213,15 @@ public class ProjectController(
         }
         catch { await RollBackPlan(); throw; }
         if (plan is not null && previousPlan is not null) await DeleteStoredPhotos([previousPlan]);
+        if ((logo is not null || request.RemoveClientLogo) && previousLogo is not null) await DeleteStoredPhotos([previousLogo]);
         return Ok(ToResponse(project));
 
         async Task RollBackPlan()
         {
+            if (project.ClientLogoPath != previousLogo && project.ClientLogoPath is not null) await DeleteStoredPhotos([project.ClientLogoPath]);
+            project.ClientLogoPath = previousLogo;
             if (plan is null) return;
-            if (project.HazardousAreaPlanPath is not null) await DeleteStoredPhotos([project.HazardousAreaPlanPath]);
+            if (project.HazardousAreaPlanPath != previousPlan && project.HazardousAreaPlanPath is not null) await DeleteStoredPhotos([project.HazardousAreaPlanPath]);
             project.HazardousAreaPlanPath = previousPlan;
             project.HazardousAreaPlanFileName = previousFileName;
         }
@@ -251,6 +269,7 @@ public class ProjectController(
         await db.SaveChangesAsync(cancellationToken);
         await DeleteStoredPhotos(photoPaths);
         if (project.HazardousAreaPlanPath is not null) await DeleteStoredPhotos([project.HazardousAreaPlanPath]);
+        if (project.ClientLogoPath is not null) await DeleteStoredPhotos([project.ClientLogoPath]);
         return NoContent();
     }
 
@@ -480,6 +499,25 @@ public class ProjectController(
         return File(content.Stream, content.ContentType, enableRangeProcessing: true);
     }
 
+    [HttpGet("{id:guid}/client-logo")]
+    public async Task<IActionResult> ClientLogo(Guid id, CancellationToken cancellationToken) {
+        var project = await AccessibleProjects().FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
+        if (project?.ClientLogoPath is null) return NotFound();
+        var file = await photoStorage.OpenReadAsync(project.ClientLogoPath, cancellationToken);
+        if (file is null) return NotFound();
+        Response.Headers.CacheControl = "private, no-store";
+        Response.Headers["X-Content-Type-Options"] = "nosniff";
+        return File(file.Stream, file.ContentType, enableRangeProcessing: true);
+    }
+    private static void ApplyMetadata(Project project, UpsertProjectRequest request) {
+        static string? Upper(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim().ToUpperInvariant();
+        project.UidNumber = Upper(request.UidNumber); project.DocumentNumber = Upper(request.DocumentNumber);
+        project.Revision = Upper(request.Revision); project.Description = Upper(request.Description); project.ClientName = Upper(request.ClientName);
+        project.OurCompanyId = request.OurCompanyId;
+    }
+    private async Task LoadCompany(Project project, CancellationToken ct) => project.OurCompany = project.OurCompanyId.HasValue
+        ? await db.CompanyMasters.FirstOrDefaultAsync(c => c.Id == project.OurCompanyId, ct) : null;
+
     private async Task SavePlan(Project project, IFormFile plan, CancellationToken cancellationToken)
     {
         var stored = await photoStorage.SaveHazardousAreaPlanAsync(plan, project.Id, cancellationToken);
@@ -523,6 +561,9 @@ public class ProjectController(
             return BadRequest(new { error = "Status must be Pending, Active, InProgress, Completed, or OnHold." });
 
         var jobNo = request.JobNo.Trim().ToUpperInvariant();
+        if (request.OurCompanyId.HasValue && !await db.CompanyMasters.AnyAsync(c => c.Id == request.OurCompanyId &&
+            (c.IsActive || db.Projects.Any(p => p.Id == projectId && p.OurCompanyId == c.Id)), cancellationToken))
+            return BadRequest(new {error = "Please select an active company from Our Company Details."});
         if (await db.Projects.AnyAsync(x => x.JobNo == jobNo && x.Id != projectId, cancellationToken))
             return Conflict(new { error = "JobNo already exists." });
 
@@ -585,7 +626,10 @@ public class ProjectController(
         project.HazardousAreaPlanFileName,
         project.HazardousAreaPlanPath is null ? null :
             Path.GetExtension(project.HazardousAreaPlanPath).Equals(".pdf", StringComparison.OrdinalIgnoreCase)
-                ? "application/pdf" : "image/jpeg");
+                ? "application/pdf" : "image/jpeg",
+        project.UidNumber, project.DocumentNumber, project.Revision, project.Description, project.ClientName,
+        project.ClientLogoPath is null ? null : $"/api/projects/{project.Id}/client-logo",
+        project.OurCompanyId, project.OurCompany is null ? null : CompanyAssets.Response(project.OurCompany));
 
     private static ProjectAreaResponse ToResponse(
         ProjectArea area, IReadOnlyDictionary<Guid, EquipmentInspectionStatus>? inspectionStatuses = null) => new(

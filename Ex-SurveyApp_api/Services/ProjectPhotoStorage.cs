@@ -14,6 +14,8 @@ public record StoredProjectPhotoContent(Stream Stream, string ContentType);
 
 public interface IProjectPhotoStorage
 {
+    Task<StoredProjectPhoto> SaveClientLogoAsync(IFormFile file, Guid projectId, CancellationToken cancellationToken)
+        => SaveAsync(file, projectId, Guid.Empty, cancellationToken);
     Task<StoredProjectPhoto> SaveHazardousAreaPlanAsync(IFormFile file, Guid projectId,
         CancellationToken cancellationToken);
     int MaxFilesPerRequest { get; }
@@ -47,6 +49,9 @@ public class ProjectPhotoStorage : IProjectPhotoStorage
 
     public int MaxFilesPerRequest => settings.MaxFilesPerRequest;
 
+    public Task<StoredProjectPhoto> SaveClientLogoAsync(IFormFile file, Guid projectId, CancellationToken cancellationToken)
+        => SaveToDirectory(file, Path.Combine("client-logos", projectId.ToString("N")), cancellationToken, isClientLogo: true);
+
     public Task<StoredProjectPhoto> SaveHazardousAreaPlanAsync(
         IFormFile file, Guid projectId, CancellationToken cancellationToken)
         => SaveToDirectory(file, Path.Combine("plans", projectId.ToString("N")), cancellationToken, isPlan: true);
@@ -63,7 +68,7 @@ public class ProjectPhotoStorage : IProjectPhotoStorage
             cancellationToken);
 
     private async Task<StoredProjectPhoto> SaveToDirectory(
-        IFormFile file, string relativeDirectory, CancellationToken cancellationToken, bool isPlan = false)
+        IFormFile file, string relativeDirectory, CancellationToken cancellationToken, bool isPlan = false, bool isClientLogo = false)
     {
         if (file.Length <= 0)
             throw new ProjectPhotoValidationException(isPlan ? "Empty files are not allowed." : "Empty image files are not allowed.");
@@ -76,6 +81,10 @@ public class ProjectPhotoStorage : IProjectPhotoStorage
             throw new ProjectPhotoValidationException("Image filenames must contain 1 to 255 characters.");
 
         var extension = Path.GetExtension(originalFileName).ToLowerInvariant();
+        if (isClientLogo && (extension is not (".jpg" or ".jpeg" or ".png") ||
+            !(file.ContentType.Equals(extension == ".png" ? "image/png" : "image/jpeg", StringComparison.OrdinalIgnoreCase) ||
+              file.ContentType.Equals("application/octet-stream", StringComparison.OrdinalIgnoreCase))))
+            throw new ProjectPhotoValidationException("Only JPG, JPEG and PNG images are allowed.");
         var hasSupportedContentType = file.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) ||
                                       file.ContentType.Equals("application/octet-stream", StringComparison.OrdinalIgnoreCase);
         if (isPlan)
@@ -127,6 +136,10 @@ public class ProjectPhotoStorage : IProjectPhotoStorage
         string relativePath, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (relativePath.StartsWith("company-logo/", StringComparison.Ordinal)) {
+            var logo = CompanyAssets.Logo(relativePath["company-logo/".Length..]);
+            return Task.FromResult<StoredProjectPhotoContent?>(logo is null ? null : new(logo, "image/png"));
+        }
         var absolutePath = ResolvePath(relativePath);
         if (!File.Exists(absolutePath))
             return Task.FromResult<StoredProjectPhotoContent?>(null);

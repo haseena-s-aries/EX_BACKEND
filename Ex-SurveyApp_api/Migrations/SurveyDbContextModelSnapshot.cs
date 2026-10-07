@@ -245,6 +245,224 @@ namespace Ex_SurveyApp_api.Migrations
                     b.ToTable("Clients");
                 });
 
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.CompanyMaster", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Address")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<string>("CompanyName")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("Fax")
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("LogoPath")
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<string>("Telephone")
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Website")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DisplayName")
+                        .IsUnique();
+
+                    b.ToTable("CompanyMasters");
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("986c73ab-be16-508b-a484-e2260d267ee5"),
+                            Address = "Business Bay, Office #601, Buiding No. 1260, Road No.  2421, Block No.  324, P.O. Box. 11614, Juffair, Manama, Kingdom of Bahrain",
+                            CompanyName = "ARIES MARINE WLL",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 10, 7, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            DisplayName = "Aries Marine WLL - DB",
+                            Email = "ariesbahrain@ariesgroup.ae",
+                            IsActive = true,
+                            LogoPath = "aries_mar_engg.png",
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 10, 7, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            Website = "www.ariesmar.com"
+                        },
+                        new
+                        {
+                            Id = new Guid("cc0f18d3-8516-5c7b-99ad-54148151b25f"),
+                            Address = "P.O Box: 24496, 20th Floor, Tower 400  Mina Road, Sharjah, UAE",
+                            CompanyName = "ARIES MARINE & ENGG. SERVICES",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 10, 7, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            DisplayName = "Aries Marine & ENGG .SERVICES - DE",
+                            Email = "eit@ariesgroup.ae",
+                            Fax = "+971 (6) 550 3100",
+                            IsActive = true,
+                            LogoPath = "aries_mar_engg.png",
+                            Telephone = "+971 (6) 550 3300",
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 10, 7, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            Website = "www.ariesmar.com"
+                        },
+                        new
+                        {
+                            Id = new Guid("235b2bcf-183f-5be0-86ab-0cdb29195920"),
+                            Address = "P.O Box: 24496, 20th Floor, Tower 400  Mina Road, Sharjah, UAE",
+                            CompanyName = "ARIES MARINE & ENGG. SERVICES",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 10, 7, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            DisplayName = "Aries Marine & ENGG .SERVICES - DF",
+                            Email = "design@ariesgroup.ae, offshoredesign@ariesgroup.ae",
+                            Fax = "+971 (6) 550 3100",
+                            IsActive = true,
+                            LogoPath = "aries_mar_engg.png",
+                            Telephone = "+971 (6) 550 3300",
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 10, 7, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            Website = "www.ariesmar.com"
+                        },
+                        new
+                        {
+                            Id = new Guid("9caaffe9-ed24-587e-91ea-764cb5876674"),
+                            Address = "#22-03A, International Plaza 10 Anson Road, Singapore 079903",
+                            CompanyName = "ARIES NETWORK PTE. LTD.",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 10, 7, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            DisplayName = "Aries Network PTE .LTD - DG",
+                            Email = "designsg@ariesgroup.ae",
+                            Fax = "+65 6220 9058",
+                            IsActive = true,
+                            LogoPath = "aries_mar_engg.png",
+                            Telephone = "+65 6220 9056",
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 10, 7, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            Website = "www.ariesmar.com"
+                        },
+                        new
+                        {
+                            Id = new Guid("54601c1b-c9fd-5199-a72e-a169a05970ae"),
+                            Address = "P.O Box: 24496, 20th Floor, Tower 400  Mina Road, Sharjah, UAE",
+                            CompanyName = "ARIES MARINE & ENGG. SERVICES",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 10, 7, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            DisplayName = "Aries Marine & ENGG .SERVICES - DI",
+                            Email = "ideas@ariesofs.ae",
+                            Fax = "+971 (6) 550 3100",
+                            IsActive = true,
+                            LogoPath = "aries_mar_engg.png",
+                            Telephone = "+971 (6) 550 3300",
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 10, 7, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            Website = "www.ariesmar.com"
+                        },
+                        new
+                        {
+                            Id = new Guid("9003d8ae-58d2-577d-a9b3-d145e9bb738f"),
+                            Address = "P.O Box: 94354, Al Qayadah Bldg. Abu Hail, Dubai, UAE",
+                            CompanyName = "ARIES MARINE L.L.C",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 10, 7, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            DisplayName = "Aries Marine L L .C - DM",
+                            Email = "dams@ariesgroup.ae",
+                            Fax = "+971 (4) 299 7940",
+                            IsActive = true,
+                            LogoPath = "aries_mar_engg.png",
+                            Telephone = "+971 (4) 299 7939",
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 10, 7, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            Website = "www.ariesmar.com"
+                        },
+                        new
+                        {
+                            Id = new Guid("d31b47a1-91a5-5acf-b7bf-98610b0fcc2a"),
+                            Address = "P.O Box: 24496, 20th Floor, Tower 400  Mina Road, Sharjah, UAE",
+                            CompanyName = "ARIES MARINE & ENGG. SERVICES",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 10, 7, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            DisplayName = "Aries Marine & ENGG .SERVICES - DN",
+                            Email = "design@ariesgroup.ae",
+                            Fax = "+971 (6) 550 3100",
+                            IsActive = true,
+                            LogoPath = "aries_mar_engg.png",
+                            Telephone = "+971 (6) 550 3300",
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 10, 7, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            Website = "www.ariesmar.com"
+                        },
+                        new
+                        {
+                            Id = new Guid("651862ed-98e7-5a95-9c6f-dce2dbacd941"),
+                            Address = "P.O Box: 94354, AI Qayadah Bldg. Abu Hail, Dubai, UAE",
+                            CompanyName = "ARIES MARINE L.L.C",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 10, 7, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            DisplayName = "Aries Marine L L .C - DS",
+                            Email = "ariesmarine@ariesgroup.ae",
+                            Fax = "+971 (4) 299 7940",
+                            IsActive = true,
+                            LogoPath = "aries_mar_engg.png",
+                            Telephone = "+971 (4) 299 7939",
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 10, 7, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            Website = "www.ariesmar.com"
+                        },
+                        new
+                        {
+                            Id = new Guid("50875e90-8c8e-57c5-8903-3810fb65ffba"),
+                            Address = "P.O Box: 3965, Warehouse 40 Mussafah Ind.Area, Abu Dhabi, UAE",
+                            CompanyName = "ARIES OIL FIELD SERVICES L.L.C",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 10, 7, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            DisplayName = "Aries Oil Field Services L L .C - DU",
+                            Email = "designauh@ariesofs.ae",
+                            Fax = "+971 (2) 550 8996",
+                            IsActive = true,
+                            LogoPath = "aries_mar_engg.png",
+                            Telephone = "+971 (2) 550 8893",
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 10, 7, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            Website = "www.ariesmar.com"
+                        },
+                        new
+                        {
+                            Id = new Guid("fb2c0295-cc98-5af3-90e8-c78d8aee925d"),
+                            Address = "Juffali Building (Fluor Arabia Tower) Office #504, King Fahd Road, Al Khobar 34423 Kingdom of Saudi Arabia",
+                            CompanyName = "ARIES MARINE SERVICES CO. LTD.",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 10, 7, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            DisplayName = "Aries Marine Services CO .LTD - KD",
+                            Email = "ariesksa@ariesgroup.ae",
+                            IsActive = true,
+                            LogoPath = "aries_mar_engg.png",
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 10, 7, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            Website = "www.ariesmar.com"
+                        },
+                        new
+                        {
+                            Id = new Guid("31bdf1cc-fb23-547f-9b85-fbd048a24705"),
+                            Address = "PO. Box: 15368, 3rd Floor, 303-B, Jaidah Square Umm Ghuwailina, 63 Airport Road - Zone 27, Doha, Qatar",
+                            CompanyName = "ARIES MARINE CO. W.L.L",
+                            CreatedAt = new DateTimeOffset(new DateTime(2026, 10, 7, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            DisplayName = "Aries Marine CO. WLL - QD",
+                            Email = "designqa@ariesgroup.ae",
+                            IsActive = true,
+                            LogoPath = "aries_mar_engg.png",
+                            UpdatedAt = new DateTimeOffset(new DateTime(2026, 10, 7, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
+                            Website = "www.ariesmar.com"
+                        });
+                });
+
             modelBuilder.Entity("Ex_SurveyApp_api.Models.Equipment", b =>
                 {
                     b.Property<Guid>("Id")
@@ -392,11 +610,27 @@ namespace Ex_SurveyApp_api.Migrations
                     b.Property<Guid>("AssignedSurveyorId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("ClientLogoPath")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("ClientName")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset");
 
                     b.Property<Guid>("CreatedByUserId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<string>("DocumentNumber")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
 
                     b.Property<string>("HazardousAreaPlanFileName")
                         .HasMaxLength(255)
@@ -416,10 +650,17 @@ namespace Ex_SurveyApp_api.Migrations
                         .HasMaxLength(300)
                         .HasColumnType("nvarchar(300)");
 
+                    b.Property<Guid?>("OurCompanyId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("ProjectName")
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("Revision")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
 
                     b.Property<string>("Sector")
                         .IsRequired()
@@ -428,6 +669,10 @@ namespace Ex_SurveyApp_api.Migrations
 
                     b.Property<int>("Status")
                         .HasColumnType("int");
+
+                    b.Property<string>("UidNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("datetimeoffset");
@@ -449,6 +694,8 @@ namespace Ex_SurveyApp_api.Migrations
 
                     b.HasIndex("JobNo")
                         .IsUnique();
+
+                    b.HasIndex("OurCompanyId");
 
                     b.ToTable("Projects");
                 });
@@ -964,7 +1211,14 @@ namespace Ex_SurveyApp_api.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Ex_SurveyApp_api.Models.CompanyMaster", "OurCompany")
+                        .WithMany()
+                        .HasForeignKey("OurCompanyId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("AssignedQc");
+
+                    b.Navigation("OurCompany");
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.ProjectArea", b =>

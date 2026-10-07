@@ -19,6 +19,14 @@ public class Project
     public required string VesselOrSiteName { get; set; }
     public string? HazardousAreaPlanPath { get; set; }
     public string? HazardousAreaPlanFileName { get; set; }
+    public string? UidNumber { get; set; }
+    public string? DocumentNumber { get; set; }
+    public string? Revision { get; set; }
+    public string? Description { get; set; }
+    public string? ClientName { get; set; }
+    public string? ClientLogoPath { get; set; }
+    public Guid? OurCompanyId {get; set;}
+    public CompanyMaster? OurCompany {get; set;}
     public ProjectStatus Status { get; set; } = ProjectStatus.Pending;
     public Guid AssignedSurveyorId { get; set; }
     public Guid AssignedQcId { get; set; }

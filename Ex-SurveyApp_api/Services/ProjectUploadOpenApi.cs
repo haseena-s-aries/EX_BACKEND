@@ -53,6 +53,7 @@ public sealed class ProjectPlanRequestBodyFilter : IOperationFilter
             Description = "Optional original JPG, JPEG or PDF. Omit to preserve the existing plan on edits."
         };
         operation.RequestBody ??= new OpenApiRequestBody();
+        schema.Properties["clientLogo"] = new OpenApiSchema { Type = "string", Format = "binary", Description = "Optional JPG, JPEG or PNG client logo. Omit to preserve the existing logo." };
         operation.RequestBody.Content["multipart/form-data"] = new OpenApiMediaType {Schema = schema};
     }
 }

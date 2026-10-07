@@ -75,7 +75,7 @@ public sealed class ProjectReportPdf(IProjectPhotoStorage storage, ILogger logge
             NewPage();
             Heading("REVISION HISTORY", 13, true);
             Table(["UID", "REV", "DATE", "DESCRIPTION", "PRE", "CHK", "APR"], [1, .7, 1.4, 3.3, 1.4, 1.4, 1.4],
-                report.Revisions.Count == 0 ? [Cells("-", "-", Date(report.GeneratedAt), "Generated from recorded project and inspection data", report.PreparedBy, report.CheckedBy, report.ApprovedBy)] :
+                report.Revisions.Count == 0 ? [Cells(Clean(report.UidNumber), Clean(report.Revision), Date(report.GeneratedAt), Clean(report.Description), report.PreparedBy, report.CheckedBy, report.ApprovedBy)] :
                     report.Revisions.Select(r => Cells("-", r.Revision.ToString(), Date(r.GeneratedAt), "-", "-", "-", "-")), 9, "REVISION HISTORY", false, XBrushes.White);
             var expectedContents = new[] {"1. Introduction", "1.1 Executive Summary", "1.2 Applicable Standards and References", "2. HAZARDOUS AREA PLAN", "3. HAZARDOUS AREA EQUIPMENT REGISTER & EQUIPMENT LAYOUT"}
                 .Concat(report.Areas.Select((a, n) => $"3.{n + 1} {a.Name}"))
@@ -98,6 +98,9 @@ public sealed class ProjectReportPdf(IProjectPhotoStorage storage, ILogger logge
             Mark("1.2 Applicable Standards and References"); Heading("1.2 Applicable Standards and References", 12);
             Paragraph("The following references are retained from the supplied approved report template. The recorded inspection type and checklist answers determine the content of each equipment inspection record.");
             Paragraph("IEC 60079-10 - Classification of hazardous areas\nIEC 60079-14 - Electrical installations in hazardous areas\nIEC 60079-17 - Inspection and maintenance of electrical equipment in hazardous areas");
+            Heading("Our Company Details", 12);
+            var company = report.OurCompany;
+            Paragraph(company is null ? "-" : $"{company.CompanyName}\n{Clean(company.Address)}\nTelephone: {Clean(company.Telephone)}    Fax: {Clean(company.Fax)}\nEmail: {Clean(company.Email)}\nWebsite: {Clean(company.Website)}");
             Divider("2. HAZARDOUS AREA PLAN");
             if (report.HazardousAreaPlan is null) {NewPage(); Heading("HAZARDOUS AREA PLAN"); Paragraph("No Hazardous Area Plan Uploaded");}
             else Plan(report.HazardousAreaPlan);
@@ -326,21 +329,53 @@ public sealed class ProjectReportPdf(IProjectPhotoStorage storage, ILogger logge
         }
         private void Cover(PdfPage p) {
             page = p; gfx = XGraphics.FromPdfPage(p, XGraphicsPdfPageOptions.Append);
-            gfx.DrawRectangle(new XSolidBrush(XColor.FromArgb(30, 148, 191)), 0, 0, Width, 118);
-            gfx.DrawRectangle(new XSolidBrush(XColor.FromArgb(36, 45, 82)), 0, 118, Width, 22);
-            gfx.DrawString("EX-SURVEY", Font(26, true), XBrushes.White, 35, 58);
-            gfx.DrawString("FIELD INSPECTIONS & QUALITY REVIEW", Font(10), XBrushes.White, 35, 88);
-            for (var row = 0; row < 16; row++) for (var col = 0; col < 9; col++) gfx.DrawEllipse(new XSolidBrush(XColor.FromArgb(240, 240, 240)), 12 + col * 20, 155 + row * 24, 10, 10);
-            y = 265; Heading("EXPLOSION PROOF SURVEY REPORT", 24, true); Heading(Clean(report.SiteName), 23, true);
-            y = 430; Heading(report.ProjectName, 16, true); Heading(report.Location, 11, true);
-            y = Height - 270;
-            Table(["EX-SURVEY", "CLIENT", "REPORT INFORMATION"], [1, 1, 1], [
-                Cells("Prepared By: " + report.PreparedBy, report.Client, "Date: " + Date(report.GeneratedAt)),
-                Cells("Checked By: " + report.CheckedBy, "Job Number: " + report.JobNumber, "Total Pages: " + pdf.PageCount),
-                Cells("QC Approved By: " + report.ApprovedBy, "Document Number: -", "Revision: " + (report.Revisions.Count == 0 ? "-" : report.Revisions.Last().Revision.ToString())),
-                Cells("UID: -", "Vessel / Site: " + report.SiteName, "Location: " + report.Location)
-            ], 10, "REPORT INFORMATION", false, XBrushes.White);
+            using var background = typeof(ProjectReportPdf).Assembly.GetManifestResourceStream("ExSurvey.ReportCover")
+                ?? throw new InvalidOperationException("The report cover template is missing.");
+            using var image = XImage.FromStream(background);
+            // Coordinate map matches the supplied artwork; embed its original pixels unchanged.
+            var scale = Math.Min(Width / image.PixelWidth, Height / image.PixelHeight);
+            var left = (Width - image.PixelWidth * scale) / 2;
+            var top = (Height - image.PixelHeight * scale) / 2;
+            gfx.DrawImage(image, left, top, image.PixelWidth * scale, image.PixelHeight * scale);
+            XRect Box(double x, double y, double width, double height) => new(left + x * scale, top + y * scale, width * scale, height * scale);
+            // The artwork's fixed logo is replaced by the selected Company Master branding.
+            gfx.DrawRectangle(XBrushes.White, Box(753, 174, 252, 173));
+            if (report.OurCompanyLogo is not null) DrawImage(report.OurCompanyLogo, Box(765, 184, 228, 153));
+            else CoverText("No logo available", Box(765, 184, 228, 153), 10, false, true);
+            CoverText("EXPLOSION PROOF\nSURVEY REPORT", Box(130, 465, 635, 135), 24, true, true);
+            CoverText(report.SiteName, Box(130, 630, 635, 110), 22, true, true);
+            CoverText(report.ProjectName, Box(130, 770, 635, 105), 17, true, true);
+            CoverText(report.Location, Box(130, 910, 560, 65), 12, false, true);
+            // Use the supplied table's exact cell bounds, without covering or redrawing its artwork.
+            CoverText(report.OurCompany is null ? "OUR COMPANY DETAILS\n-" : report.OurCompany.CompanyName + "\n" + Clean(report.OurCompany.Address) + "\n" + Clean(report.OurCompany.Website), Box(65, 1175, 445, 105), 9, true, true);
+            if (report.ClientLogo is not null) {
+                DrawImage(report.ClientLogo, Box(555, 1175, 425, 65));
+                CoverText(report.Client, Box(545, 1248, 445, 34), 11, true, true);
+            }
+            else CoverText("CLIENT\n" + Clean(report.Client), Box(545, 1175, 445, 105), 13, true, true);
+            var rows = new[] {
+                new[] {"Prepared by", report.PreparedBy, "UID Number", Clean(report.UidNumber), "Date", report.GeneratedAt.ToString("dd.MM.yy")},
+                new[] {"Checked by", report.CheckedBy, "Job Number", report.JobNumber, "Total Pages", pdf.PageCount.ToString()},
+                new[] {"Approved by", report.ApprovedBy, "Document Number", Clean(report.DocumentNumber), "Revision", report.Revision ?? (report.Revisions.Count == 0 ? "-" : report.Revisions.Last().Revision.ToString())}
+            };
+            double[] columns = [47, 227, 368, 528, 767, 872, 1008];
+            double[] rowEdges = [1299, 1347, 1398, 1449];
+            for (var r = 0; r < rows.Length; r++) for (var c = 0; c < rows[r].Length; c++) {
+                CoverText(rows[r][c], Box(columns[c] + 8, rowEdges[r] + 5, columns[c + 1] - columns[c] - 16, rowEdges[r + 1] - rowEdges[r] - 10), 8.5, c % 2 == 0);
+            }
             gfx.Dispose(); gfx = null!;
+        }
+        private void CoverText(string? value, XRect box, double size, bool bold = false, bool centered = false) {
+            var font = Font(size, bold, serif: true);
+            var lines = Wrap(Clean(value), font, box.Width);
+            while ((lines.Count * size * 1.2 > box.Height || lines.Any(line => gfx.MeasureString(line, font).Width > box.Width)) && size > 2) {
+                size -= .5; font = Font(size, bold, serif: true); lines = Wrap(Clean(value), font, box.Width);
+            }
+            var textY = box.Y + (box.Height - lines.Count * size * 1.2) / 2;
+            foreach (var line in lines) {
+                gfx.DrawString(line, font, XBrushes.Black, new XRect(box.X, textY, box.Width, size * 1.2), centered ? XStringFormats.TopCenter : XStringFormats.TopLeft);
+                textY += size * 1.2;
+            }
         }
         private void Headers() {
             for (var n = 1; n < pdf.PageCount; n++) {

@@ -21,6 +21,16 @@ internal static class ReportChecks
         var root = Path.GetFullPath("Ex-SurveyApp_api");
         var config = new ConfigurationBuilder().SetBasePath(root).AddJsonFile("appsettings.json", true).AddJsonFile("appsettings.Development.json", true).AddEnvironmentVariables().Build();
         await using var db = new SurveyDbContext(new DbContextOptionsBuilder<SurveyDbContext>().UseSqlServer(config.GetConnectionString("SurveyDatabase")).Options);
+        var companies = await db.CompanyMasters.AsNoTracking().ToListAsync();
+        foreach (var expected in CompanyAssets.Seed())
+        {
+            var saved = companies.Single(c => c.Id == expected.Id);
+            Check(saved.CompanyName == expected.CompanyName && saved.DisplayName == expected.DisplayName
+                && saved.Address == expected.Address && saved.Telephone == expected.Telephone && saved.Fax == expected.Fax
+                && saved.Website == expected.Website && saved.Email == expected.Email && saved.LogoPath == expected.LogoPath,
+                "SQL company row preserves its exact workbook values: " + expected.DisplayName);
+        }
+        Console.WriteLine($"SQL company master verified: {companies.Count} persisted records.");
         var user = await db.Users.AsNoTracking().Where(u => u.IsActive && u.ApprovalStatus == ApprovalStatus.Approved && (u.Role == UserRole.Admin || u.Role == UserRole.Manager)).OrderBy(u => u.Role).FirstAsync();
         var loader = new ProjectReportData(db);
         var project = await loader.AccessibleProjects(Principal(user)).OrderByDescending(p => db.AreaEquipment.Count(e => e.ProjectId == p.Id)).ThenByDescending(p => p.UpdatedAt).FirstAsync();
@@ -81,7 +91,16 @@ internal static class ReportChecks
         Check(await loader.Load(project.Id, Principal(other), default) == null, "Unrelated Manager cannot obtain report data");
         Check(await loader.Load(project.Id, Principal(surveyor), default) != null && await loader.Load(project.Id, Principal(qc), default) != null && await loader.Load(project.Id, Principal(client), default) != null, "Assigned Surveyor, QC and Client retain scoped report access");
         Check(!JsonSerializer.Serialize(report).Contains("StorageKey"), "Public report DTO never exposes physical storage keys");
+        project.UidNumber = "226869"; project.DocumentNumber = "DYNAMIC/5001"; project.Revision = "A";
+        project.Description = "INITIAL ISSUE"; project.ClientName = "PROJECT CLIENT COMPANY"; project.ClientLogoPath = "logo.png";
+        await db.SaveChangesAsync();
+        report = (await loader.Load(project.Id, Principal(manager), default))!;
+        Check(report.UidNumber == "226869" && report.DocumentNumber == "DYNAMIC/5001" && report.Revision == "A" && report.Description == "INITIAL ISSUE" && report.Client == "PROJECT CLIENT COMPANY" && report.ClientLogo?.Url.EndsWith("/assets/client-logo") == true && report.Assets.Count() == 4, "Report maps optional project metadata and client branding from saved project data");
         var storage = new Images();
+        var company = CompanyAssets.Seed().Single(c => c.DisplayName.EndsWith("- DF"));
+        db.CompanyMasters.Add(company); project.OurCompanyId = company.Id; await db.SaveChangesAsync();
+        report = (await loader.Load(project.Id, Principal(manager), default))!;
+        Check(report.OurCompany?.Email == company.Email && report.OurCompanyLogo is not null && report.Assets.Count() == 5, "Report dynamically resolves selected company contacts and logo");
         var result = await new ProjectReportPdf(storage, NullLogger.Instance).Generate(report, default);
         using var pdf = PdfReader.Open(new MemoryStream(result), PdfDocumentOpenMode.Import);
         Check(pdf.PageCount >= 18 && pdf.Pages.Cast<PdfPage>().Any(p => p.Width.Point > p.Height.Point), "Reference-style report includes portrait sections and landscape tables");
@@ -109,6 +128,7 @@ internal static class ReportChecks
         public Task<StoredProjectPhoto> SaveHazardousAreaPlanAsync(Microsoft.AspNetCore.Http.IFormFile f, Guid p, CancellationToken c) => throw new NotSupportedException();
         public Task<StoredProjectPhotoContent?> OpenReadAsync(string key, CancellationToken ct = default)
         {
+            if (key.StartsWith("company-logo/")) return Task.FromResult<StoredProjectPhotoContent?>(new(CompanyAssets.Logo(key["company-logo/".Length..])!, "image/png"));
             var stream = new MemoryStream();
             if (key == "plan.pdf") {
                 using var pdf = new PdfDocument(); for (var n = 1; n <= 2; n++) {var page = pdf.AddPage(); using var gfx = XGraphics.FromPdfPage(page); gfx.DrawString("ORIGINAL VECTOR PLAN PAGE " + n, new XFont("Report Sans", 18), XBrushes.Black, 50, 100); gfx.DrawRectangle(XPens.Blue, 50, 140, 430, 400);} pdf.Save(stream, false);

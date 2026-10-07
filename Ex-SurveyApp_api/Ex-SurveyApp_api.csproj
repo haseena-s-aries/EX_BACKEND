@@ -8,6 +8,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Assets/Reports/cover.png" LogicalName="ExSurvey.ReportCover" />
+    <EmbeddedResource Include="Assets/Companies.json" LogicalName="ExSurvey.Companies" />
+    <EmbeddedResource Include="Assets/CompanyLogos/*.png" LogicalName="ExSurvey.CompanyLogos.%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="MailKit" Version="4.17.0" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.0" />

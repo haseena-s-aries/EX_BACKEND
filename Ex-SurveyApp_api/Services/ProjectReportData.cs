@@ -25,8 +25,18 @@ public sealed record ProjectReport(Guid ProjectId, string ProjectName, string Jo
     ReportAsset? HazardousAreaPlan, IReadOnlyList<ReportArea> Areas)
 {
     public IReadOnlyList<ReportRevisionEntry> Revisions { get; init; } = [];
+    public string? UidNumber { get; init; }
+    public string? DocumentNumber { get; init; }
+    public string? Revision { get; init; }
+    public string? Description { get; init; }
+    public string? ClientName { get; init; }
+    public ReportAsset? ClientLogo { get; init; }
+    public CompanyResponse? OurCompany {get; init;}
+    public ReportAsset? OurCompanyLogo {get; init;}
     [JsonIgnore] public IEnumerable<ReportAsset> Assets =>
         (HazardousAreaPlan is null ? Enumerable.Empty<ReportAsset>() : new[] {HazardousAreaPlan})
+        .Concat(ClientLogo is null ? Enumerable.Empty<ReportAsset>() : new[] {ClientLogo})
+        .Concat(OurCompanyLogo is null ? Enumerable.Empty<ReportAsset>() : new[] {OurCompanyLogo})
         .Concat(Areas.Where(a => a.Layout != null).Select(a => a.Layout!))
         .Concat(Areas.SelectMany(a => a.Equipment).SelectMany(e => e.Inspections)
             .SelectMany(i => i.Photos.Concat(i.Findings.SelectMany(f => f.Photos)))).DistinctBy(a => a.Key);
@@ -48,7 +58,7 @@ public sealed class ProjectReportData(SurveyDbContext db)
 
     public async Task<ProjectReport?> Load(Guid id, ClaimsPrincipal user, CancellationToken ct)
     {
-        var project = await AccessibleProjects(user).SingleOrDefaultAsync(p => p.Id == id, ct);
+        var project = await AccessibleProjects(user).Include(p => p.OurCompany).SingleOrDefaultAsync(p => p.Id == id, ct);
         if (project is null) return null;
         var areas = await db.ProjectAreas.AsNoTracking().Where(a => a.ProjectId == id).OrderBy(a => a.CreatedAt).ThenBy(a => a.Id).ToListAsync(ct);
         var equipment = await db.AreaEquipment.AsNoTracking().Where(e => e.ProjectId == id).OrderBy(e => e.SequenceNo).ToListAsync(ct);
@@ -95,7 +105,7 @@ public sealed class ProjectReportData(SurveyDbContext db)
         }
         var checkedNames = reviews.Select(q => Name(q.ReviewedByUserId)).Distinct().ToArray();
         var approvedNames = reviews.Where(q => q.Status == QcReviewStatus.Approved).Select(q => Name(q.ReviewedByUserId)).Distinct().ToArray();
-        return new(id, project.ProjectName, project.JobNo, project.VesselOrSiteName, project.Location, Name(project.AssignedClientId), Name(project.AssignedSurveyorId),
+        return new(id, project.ProjectName, project.JobNo, project.VesselOrSiteName, project.Location, project.ClientName ?? Name(project.AssignedClientId), Name(project.AssignedSurveyorId),
             checkedNames.Length == 0 ? "-" : string.Join(", ", checkedNames), approvedNames.Length == 0 ? "-" : string.Join(", ", approvedNames), DateTimeOffset.UtcNow,
             project.HazardousAreaPlanPath is null ? null : Asset("plan", Path.GetExtension(project.HazardousAreaPlanPath).Equals(".pdf", StringComparison.OrdinalIgnoreCase) ? "application/pdf" : "image/jpeg", project.HazardousAreaPlanPath),
             areas.Select(area => {
@@ -103,6 +113,10 @@ public sealed class ProjectReportData(SurveyDbContext db)
                 return new ReportArea(area.AreaName, layout is null ? null : Asset("layout-" + layout.Id, "image/" + Path.GetExtension(layout.FilePath).TrimStart('.'), layout.FilePath),
                     equipment.Where(e => e.AreaId == area.Id).Select(e => new ReportEquipment(e.SequenceNo, e.TagNumber, e.EquipmentCode, e.Type, e.XPercent, e.YPercent, e.CircuitId,
                         e.Location, e.Manufacturer, e.ProtectionDetails, e.CertificateNumber, sessions.Where(s => s.AreaEquipmentId == e.Id).Select(Inspection).ToArray())).ToArray());
-            }).ToArray()) {Revisions = revisions};
+            }).ToArray()) {Revisions = revisions, UidNumber = project.UidNumber, DocumentNumber = project.DocumentNumber,
+                Revision = project.Revision, Description = project.Description, ClientName = project.ClientName,
+                ClientLogo = project.ClientLogoPath is null ? null : Asset("client-logo", Path.GetExtension(project.ClientLogoPath).Equals(".png", StringComparison.OrdinalIgnoreCase) ? "image/png" : "image/jpeg", project.ClientLogoPath),
+                OurCompany = project.OurCompany is null ? null : CompanyAssets.Response(project.OurCompany),
+                OurCompanyLogo = project.OurCompany?.LogoPath is null || CompanyAssets.Response(project.OurCompany).LogoUrl is null ? null : Asset("our-company-logo", "image/png", "company-logo/" + project.OurCompany.LogoPath)};
     }
 }

@@ -20,7 +20,13 @@ public record UpsertProjectRequest(
 
     Guid? AssignedClientId = null,
 
-    ProjectStatus Status = ProjectStatus.Pending);
+    ProjectStatus Status = ProjectStatus.Pending,
+    [StringLength(100)] string? UidNumber = null,
+    [StringLength(200)] string? DocumentNumber = null,
+    [StringLength(100)] string? Revision = null,
+    [StringLength(4000)] string? Description = null,
+    [StringLength(200)] string? ClientName = null,
+    bool RemoveClientLogo = false, Guid? OurCompanyId = null);
 
 public record UpsertProjectAreaRequest(
 
@@ -96,7 +102,10 @@ public record ProjectResponse(
     IReadOnlyCollection<ProjectAreaResponse> Areas,
     string? HazardousAreaPlanPath = null,
     string? HazardousAreaPlanFileName = null,
-    string? HazardousAreaPlanContentType = null);
+    string? HazardousAreaPlanContentType = null,
+    string? UidNumber = null, string? DocumentNumber = null, string? Revision = null,
+    string? Description = null, string? ClientName = null, string? ClientLogoPath = null,
+    Guid? OurCompanyId = null, CompanyResponse? OurCompany = null);
 
 public record ProjectAreaResponse(
 
