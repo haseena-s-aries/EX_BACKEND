@@ -73,10 +73,7 @@ public sealed class ProjectReportPdf(IProjectPhotoStorage storage, ILogger logge
             pdf.Info.Creator = "Ex-Survey";
             var cover = Blank();
             NewPage();
-            Heading("REVISION HISTORY", 13, true);
-            Table(["UID", "REV", "DATE", "DESCRIPTION", "PRE", "CHK", "APR"], [1, .7, 1.4, 3.3, 1.4, 1.4, 1.4],
-                report.Revisions.Count == 0 ? [Cells(Clean(report.UidNumber), Clean(report.Revision), Date(report.GeneratedAt), Clean(report.Description), report.PreparedBy, report.CheckedBy, report.ApprovedBy)] :
-                    report.Revisions.Select(r => Cells("-", r.Revision.ToString(), Date(r.GeneratedAt), "-", "-", "-", "-")), 9, "REVISION HISTORY", false, XBrushes.White);
+            RevisionHistory();
             var expectedContents = new[] {"1. Introduction", "1.1 Executive Summary", "1.2 Applicable Standards and References", "2. HAZARDOUS AREA PLAN", "3. HAZARDOUS AREA EQUIPMENT REGISTER & EQUIPMENT LAYOUT"}
                 .Concat(report.Areas.Select((a, n) => $"3.{n + 1} {a.Name}"))
                 .Concat(new[] {"4. EQUIPMENT DEFECT & RECOMMENDATION REGISTER", "5. EQUIPMENT CHECK LIST (IEC 60079-17)"})
@@ -338,16 +335,19 @@ public sealed class ProjectReportPdf(IProjectPhotoStorage storage, ILogger logge
             var top = (Height - image.PixelHeight * scale) / 2;
             gfx.DrawImage(image, left, top, image.PixelWidth * scale, image.PixelHeight * scale);
             XRect Box(double x, double y, double width, double height) => new(left + x * scale, top + y * scale, width * scale, height * scale);
-            // The artwork's fixed logo is replaced by the selected Company Master branding.
-            gfx.DrawRectangle(XBrushes.White, Box(753, 174, 252, 173));
-            if (report.OurCompanyLogo is not null) DrawImage(report.OurCompanyLogo, Box(765, 184, 228, 153));
-            else CoverText("No logo available", Box(765, 184, 228, 153), 10, false, true);
-            CoverText("EXPLOSION PROOF\nSURVEY REPORT", Box(130, 465, 635, 135), 24, true, true);
-            CoverText(report.SiteName, Box(130, 630, 635, 110), 22, true, true);
-            CoverText(report.ProjectName, Box(130, 770, 635, 105), 17, true, true);
-            CoverText(report.Location, Box(130, 910, 560, 65), 12, false, true);
+            // Keep the template's top-right ARIES logo untouched.
+            CoverProjectName();
             // Use the supplied table's exact cell bounds, without covering or redrawing its artwork.
-            CoverText(report.OurCompany is null ? "OUR COMPANY DETAILS\n-" : report.OurCompany.CompanyName + "\n" + Clean(report.OurCompany.Address) + "\n" + Clean(report.OurCompany.Website), Box(65, 1175, 445, 105), 9, true, true);
+            var company = report.OurCompany;
+            var contactLines = new List<string>();
+            if (!string.IsNullOrWhiteSpace(company?.Address)) contactLines.Add(company.Address);
+            if (!string.IsNullOrWhiteSpace(company?.Telephone)) contactLines.Add("Tel: " + company.Telephone);
+            if (!string.IsNullOrWhiteSpace(company?.Fax)) contactLines.Add("Fax: " + company.Fax);
+            if (!string.IsNullOrWhiteSpace(company?.Website)) contactLines.Add(company.Website);
+            if (!string.IsNullOrWhiteSpace(company?.Email)) contactLines.Add(company.Email);
+            CompanyCoverText(company?.CompanyName ?? "OUR COMPANY DETAILS", contactLines, Box(65, 1173, 280, 112));
+            if (report.OurCompanyLogo is not null) DrawImage(report.OurCompanyLogo, Box(355, 1180, 155, 98));
+            else CoverText("No logo available", Box(355, 1180, 155, 98), 6, false, true);
             if (report.ClientLogo is not null) {
                 DrawImage(report.ClientLogo, Box(555, 1175, 425, 65));
                 CoverText(report.Client, Box(545, 1248, 445, 34), 11, true, true);
@@ -365,6 +365,52 @@ public sealed class ProjectReportPdf(IProjectPhotoStorage storage, ILogger logge
             }
             gfx.Dispose(); gfx = null!;
         }
+        private void CoverProjectName() {
+            var title = Clean(report.ProjectName).ToUpperInvariant();
+            var width = Width - 100;
+            var size = 24.0;
+            var font = Font(size, true, serif: true);
+            var lines = Wrap(title, font, width);
+            while (lines.Count > 2 || lines.Any(line => gfx.MeasureString(line, font).Width > width)) {
+                size *= .95;
+                font = Font(size, true, serif: true);
+                lines = Wrap(title, font, width);
+            }
+            var lineHeight = size * 1.2;
+            var textY = (Height - lines.Count * lineHeight) / 2;
+            foreach (var line in lines) {
+                gfx.DrawString(line, font, XBrushes.Black, new XRect(50, textY, width, lineHeight), XStringFormats.TopCenter);
+                textY += lineHeight;
+            }
+        }
+        private void CompanyCoverText(string name, IReadOnlyList<string> details, XRect box) {
+            // Fit both columns inside the existing cell; keep the heading and all details top-left aligned.
+            var size = 8.0;
+            List<string> headingLines, detailLines;
+            XFont headingFont, detailFont;
+            double headingSize, lineHeight, headingHeight;
+            do {
+                headingSize = size * 1.3;
+                headingFont = Font(headingSize, true);
+                detailFont = Font(size);
+                headingLines = Wrap(name, headingFont, box.Width);
+                detailLines = details.SelectMany(detail => Wrap(detail, detailFont, box.Width)).ToList();
+                lineHeight = size * 1.08;
+                headingHeight = headingLines.Count * headingSize * 1.08 + 2;
+                if (headingHeight + detailLines.Count * lineHeight <= box.Height || size <= 3) break;
+                size -= .25;
+            } while (true);
+            var textY = box.Y;
+            foreach (var line in headingLines) {
+                gfx.DrawString(line, headingFont, XBrushes.Black, new XRect(box.X, textY, box.Width, headingSize * 1.08), XStringFormats.TopLeft);
+                textY += headingSize * 1.08;
+            }
+            textY += 2;
+            foreach (var line in detailLines) {
+                gfx.DrawString(line, detailFont, XBrushes.Black, new XRect(box.X, textY, box.Width, lineHeight), XStringFormats.TopLeft);
+                textY += lineHeight;
+            }
+        }
         private void CoverText(string? value, XRect box, double size, bool bold = false, bool centered = false) {
             var font = Font(size, bold, serif: true);
             var lines = Wrap(Clean(value), font, box.Width);
@@ -377,18 +423,65 @@ public sealed class ProjectReportPdf(IProjectPhotoStorage storage, ILogger logge
                 textY += size * 1.2;
             }
         }
+        private void RevisionHistory() {
+            var tableWidth = BodyWidth * .92;
+            var tableLeft = (Width - tableWidth) / 2;
+            const double titleHeight = 34;
+            gfx.DrawRectangle(new XPen(XColors.Black, 1), tableLeft, y, tableWidth, titleHeight);
+            gfx.DrawString("REVISION HISTORY", Font(16, true, serif: true), XBrushes.Black,
+                new XRect(tableLeft, y, tableWidth, titleHeight), XStringFormats.Center);
+            y += titleHeight;
+            double[] weights = [1.1, 1, 1.5, 3.1, 1.4, 1.4, 1.4];
+            var widths = weights.Select(weight => tableWidth * weight / weights.Sum()).ToArray();
+            var values = new[] {Clean(report.UidNumber), Clean(report.Revision), Date(report.GeneratedAt),
+                Clean(report.Description), Clean(report.PreparedBy), Clean(report.CheckedBy), Clean(report.ApprovedBy)};
+            var valueHeight = Math.Min(Height - y - 100, Math.Max(40, values.Select((value, column) => Wrap(value, Font(10, serif: true), widths[column] - 12).Count * 12 + 16).Max()));
+            Row(["UID", "REV", "DATE", "DESCRIPTION", "PRE", "CHK", "APR"], 32, 11, true);
+            Row(values, valueHeight, 10, false);
+            void Row(string[] texts, double height, double initialSize, bool bold) {
+                var x = tableLeft;
+                for (var column = 0; column < texts.Length; column++) {
+                    var size = initialSize;
+                    var font = Font(size, bold, serif: true);
+                    var lines = Wrap(texts[column], font, widths[column] - 12);
+                    while (lines.Count * size * 1.2 > height - 12) {
+                        size *= .95; font = Font(size, bold, serif: true);
+                        lines = Wrap(texts[column], font, widths[column] - 12);
+                    }
+                    gfx.DrawRectangle(new XPen(XColors.Black, 1), x, y, widths[column], height);
+                    var textY = y + (height - lines.Count * size * 1.2) / 2;
+                    foreach (var line in lines) {
+                        gfx.DrawString(line, font, XBrushes.Black, new XRect(x + 6, textY, widths[column] - 12, size * 1.2), XStringFormats.TopCenter);
+                        textY += size * 1.2;
+                    }
+                    x += widths[column];
+                }
+                y += height;
+            }
+        }
         private void Headers() {
             for (var n = 1; n < pdf.PageCount; n++) {
                 var p = pdf.Pages[n]; using var drawing = XGraphics.FromPdfPage(p, XGraphicsPdfPageOptions.Append);
                 var width = p.Width.Point; var height = p.Height.Point;
                 var font = Font(9, serif: true, italic: true);
-                drawing.DrawString("EXPLOSION PROOF SURVEY REPORT", font, XBrushes.Black, Margin, 32);
-                drawing.DrawString(Clean(report.SiteName), font, XBrushes.Black, new XRect(width / 2, 22, width / 2 - Margin, 24), XStringFormats.TopRight);
+                HeaderText(report.ProjectName, Margin, false);
+                HeaderText(report.SiteName, width / 2 + 6, true);
                 var line = new XPen(XColor.FromArgb(171, 169, 155), 2.5);
                 drawing.DrawLine(line, Margin, 52, width - Margin, 52);
                 drawing.DrawLine(line, Margin, height - 40, width - Margin, height - 40);
-                drawing.DrawString("Ex-Survey", font, XBrushes.Black, Margin, height - 23);
+                drawing.DrawString("ARIES MARINE", font, XBrushes.Black, Margin, height - 23);
                 drawing.DrawString($"Page {n + 1} of {pdf.PageCount}", font, XBrushes.Black, new XRect(width - Margin - 120, height - 34, 120, 18), XStringFormats.TopRight);
+                void HeaderText(string? value, double x, bool right) {
+                    var text = Clean(value);
+                    var availableWidth = width / 2 - Margin - 6;
+                    var size = 9.0;
+                    var headerFont = font;
+                    while (drawing.MeasureString(text, headerFont).Width > availableWidth) {
+                        size *= .95; headerFont = Font(size, serif: true, italic: true);
+                    }
+                    var textX = right ? width - Margin - drawing.MeasureString(text, headerFont).Width : x;
+                    drawing.DrawString(text, headerFont, XBrushes.Black, textX, 49);
+                }
             }
         }
         public void Dispose() {gfx?.Dispose(); pdf.Dispose();}
