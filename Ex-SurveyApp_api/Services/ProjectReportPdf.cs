@@ -86,18 +86,8 @@ public sealed class ProjectReportPdf(IProjectPhotoStorage storage, ILogger logge
                 tocY += height;
             }
             NewPage(); Mark("1. Introduction");
-            Heading("1. Introduction", 15);
-            Mark("1.1 Executive Summary"); Heading("1.1 Executive Summary", 12);
             var inspections = report.Areas.SelectMany(a => a.Equipment).SelectMany(e => e.Inspections).ToArray();
-            var dates = inspections.Where(i => i.Date.HasValue).Select(i => i.Date!.Value).Order().ToArray();
-            Paragraph($"This report presents recorded explosion proof survey information for {Clean(report.SiteName)} ({Clean(report.ProjectName)}), at {Clean(report.Location)}, for {Clean(report.Client)}. Job number: {Clean(report.JobNumber)}. Recorded inspection period: {(dates.Length == 0 ? "-" : Date(dates.First()) + " to " + Date(dates.Last()))}.");
-            Paragraph($"The project contains {report.Areas.Count} areas, {report.Areas.Sum(a => a.Equipment.Count)} equipment items and {inspections.Length} inspection records. Equipment details, layout marker positions, saved checklist responses, photographs, findings and QC results are reproduced from the application. Uninspected equipment and pending reviews are identified as recorded; missing information is shown as '-'.");
-            Mark("1.2 Applicable Standards and References"); Heading("1.2 Applicable Standards and References", 12);
-            Paragraph("The following references are retained from the supplied approved report template. The recorded inspection type and checklist answers determine the content of each equipment inspection record.");
-            Paragraph("IEC 60079-10 - Classification of hazardous areas\nIEC 60079-14 - Electrical installations in hazardous areas\nIEC 60079-17 - Inspection and maintenance of electrical equipment in hazardous areas");
-            Heading("Our Company Details", 12);
-            var company = report.OurCompany;
-            Paragraph(company is null ? "-" : $"{company.CompanyName}\n{Clean(company.Address)}\nTelephone: {Clean(company.Telephone)}    Fax: {Clean(company.Fax)}\nEmail: {Clean(company.Email)}\nWebsite: {Clean(company.Website)}");
+            Introduction();
             Divider("2. HAZARDOUS AREA PLAN");
             if (report.HazardousAreaPlan is null) {NewPage(); Heading("HAZARDOUS AREA PLAN"); Paragraph("No Hazardous Area Plan Uploaded");}
             else Plan(report.HazardousAreaPlan);
@@ -112,20 +102,15 @@ public sealed class ProjectReportPdf(IProjectPhotoStorage storage, ILogger logge
                 if (area.Layout is null) Paragraph("No Area Layout Uploaded");
                 else DrawImage(area.Layout, new XRect(Margin, y + 10, BodyWidth, Height - y - 80), area.Equipment);
                 if (area.Equipment.Count == 0) continue;
-                NewPage(true); Heading("AREA EQUIPMENT INDEX - " + area.Name);
-                var indexRows = (int)Math.Ceiling(area.Equipment.Count / 3d);
-                Table(["Sl. No", "Item / Equipment ID", "Description / Type", "Sl. No", "Item / Equipment ID", "Description / Type", "Sl. No", "Item / Equipment ID", "Description / Type"],
-                    [.5, 1.2, 3, .5, 1.2, 3, .5, 1.2, 3], Enumerable.Range(0, indexRows).Select(row => Enumerable.Range(0, 3).SelectMany(col => {
-                        var item = area.Equipment.ElementAtOrDefault(row + col * indexRows);
-                        return item is null ? Cells("-", "-", "-") : Cells(item.SequenceNo.ToString(), EquipmentId(item), item.Type);
-                    }).ToArray()), 8.5, "AREA EQUIPMENT INDEX - " + area.Name, true, XBrushes.White);
-                NewPage(true); RegisterHeading("HAZARDOUS AREA EQUIPMENT REGISTER - " + area.Name);
+                EquipmentIndex(area);
+                NewPage(true); EquipmentRegisterHeading();
                 Table(["Sl. No", "Equipment ID", "Tag Number", "Area", "Type", "Location", "Manufacturer", "Circuit ID", "Protection Details", "Certificate Number", "Inspection Type", "Inspection Date", "Inspector", "Comments", "QC Status"],
                     [.55, 1, 1, .9, 1.2, 1, 1.2, .9, 1.3, 1.3, .85, .9, 1.1, 1.8, 1],
-                    area.Equipment.SelectMany(e => e.Inspections.Count == 0 ? new[] {Register(e, area, null)} : e.Inspections.Select(i => Register(e, area, i))), 7.5, "HAZARDOUS AREA EQUIPMENT REGISTER - " + area.Name, true);
+                    area.Equipment.SelectMany(e => e.Inspections.Count == 0 ? new[] {Register(e, area, null)} : e.Inspections.Select(i => Register(e, area, i))), 7.5, "HAZARDOUS AREA EQUIPMENT REGISTER", true,
+                    continuationHeading: EquipmentRegisterHeading, centered: true);
             }
             Divider("4. EQUIPMENT DEFECT & RECOMMENDATION REGISTER");
-            NewPage(true); RegisterHeading("EX HAZARDOUS AREA EQUIPMENT DEFECT REGISTER");
+            NewPage(true); DefectRegisterHeading();
             var defects = new List<Cell[]>(); var action = 0;
             foreach (var area in report.Areas) foreach (var e in area.Equipment) foreach (var i in e.Inspections) {
                 foreach (var f in i.Findings) {
@@ -136,7 +121,7 @@ public sealed class ProjectReportPdf(IProjectPhotoStorage storage, ILogger logge
                     defects.Add(Defect(++action, area, e, i, answer.Question + (string.IsNullOrWhiteSpace(answer.Comment) ? "" : "\n" + answer.Comment), null, "Checklist FAIL", null, i.Photos));
             }
             Table(["Action No", "Date", "Equipment ID", "Tag Number", "Area", "Inspection Type", "Description", "Observation", "Recommendation", "Severity / Status", "Photo", "Photo", "Remarks"],
-                [.6, .9, 1, 1, .9, .85, 1.2, 2, 2, 1, 1.8, 1.8, 1.7], defects, 7.5, "EX HAZARDOUS AREA EQUIPMENT DEFECT REGISTER", true, new XSolidBrush(XColor.FromArgb(215, 222, 230)));
+                [.6, .9, 1, 1, .9, .85, 1.2, 2, 2, 1, 1.8, 1.8, 1.7], defects, 7.5, "EX HAZARDOUS AREA EQUIPMENT DEFECT REGISTER", true, new XSolidBrush(XColor.FromArgb(215, 222, 230)), continuationHeading: DefectRegisterHeading);
             Divider("5. EQUIPMENT CHECK LIST (IEC 60079-17)");
             if (!inspections.Any()) {NewPage(); Paragraph("No inspection records available");}
             for (var a = 0; a < report.Areas.Count; a++) {
@@ -164,15 +149,6 @@ public sealed class ProjectReportPdf(IProjectPhotoStorage storage, ILogger logge
                     y += 12;
                     Paragraph("Surveyor Comments: " + Clean(i.Comments));
                     Paragraph("QC Result: " + Status(i.Status) + "\nQC Comments: " + Clean(i.QcComments) + "\nQC Severity: " + Clean(i.QcSeverity) + "\nReviewed By: " + i.CheckedBy + "\nReviewed At: " + Date(i.ReviewedAt), "QC REVIEW DETAILS - " + e.TagNumber);
-                    if (i.Photos.Count > 0) {
-                        for (var n = 0; n < i.Photos.Count; n += 2) {
-                            if (n > 0 || wide || y + 300 > Height - 60) NewPage();
-                            Heading("INSPECTION PHOTOGRAPHS", 13);
-                            Paragraph($"Equipment: {EquipmentId(e)} | Tag: {e.TagNumber} | Area: {area.Name}");
-                            var space = (Height - y - 75) / Math.Min(2, i.Photos.Count - n);
-                            for (var p = n; p < Math.Min(n + 2, i.Photos.Count); p++) {DrawImage(i.Photos[p], new XRect(Margin, y + 4, BodyWidth, space - 15)); y += space;}
-                        }
-                    }
                 }
             }
             gfx?.Dispose(); gfx = null!;
@@ -215,43 +191,91 @@ public sealed class ProjectReportPdf(IProjectPhotoStorage storage, ILogger logge
             }
             return lines.Count == 0 ? ["-"] : lines;
         }
-        private void Table(string[] headers, double[] weights, IEnumerable<Cell[]> source, double size, string caption, bool landscape, XBrush? headerBrush = null) {
+        private void Table(string[] headers, double[] weights, IEnumerable<Cell[]> source, double size, string caption, bool landscape, XBrush? headerBrush = null, Action? continuationHeading = null, bool centered = false) {
             var widths = weights.Select(w => BodyWidth * w / weights.Sum()).ToArray();
             var font = Font(size); var headFont = Font(size, true); var lineHeight = size * 1.35;
             var headerLines = headers.Select((t, n) => Wrap(t, headFont, widths[n] - 8)).ToArray();
             var headerHeight = headerLines.Max(l => l.Count) * lineHeight + 12;
-            void Head() {DrawRow(headerLines, widths, headerHeight, headFont, lineHeight, true, null, headerBrush);}
-            if (y + headerHeight + 24 > Height - 60) NewPage(landscape, caption);
+            var tableTop = y;
+            void NextPage() {if (continuationHeading is null) NewPage(landscape, caption); else {NewPage(landscape); continuationHeading();}}
+            void Head() {DrawRow(headerLines, widths, headerHeight, headFont, lineHeight, true, null, headerBrush, centered);}
+            if (y + headerHeight + 24 > Height - 60) NextPage();
             Head(); var any = false;
             foreach (var cells in source) {
                 ct.ThrowIfCancellationRequested(); any = true;
                 var lines = cells.Select((cell, n) => Wrap(cell.Image is null ? Clean(cell.Text) : "", font, widths[n] - 8)).ToArray();
-                var maxLines = Math.Max(1, (int)((Height - 160 - headerHeight) / lineHeight));
+                var maxLines = Math.Max(1, (int)((Height - (continuationHeading is null ? 160 : tableTop + 70) - headerHeight) / lineHeight));
                 var chunks = (int)Math.Ceiling(lines.Max(l => l.Count) / (double)maxLines);
                 for (var part = 0; part < chunks; part++) {
                     var chunk = lines.Select(l => l.Skip(part * maxLines).Take(maxLines).ToList()).ToArray();
                     var images = part == 0 ? cells.Select(c => c.Image).ToArray() : null;
                     var height = Math.Max(22, chunk.Max(l => l.Count) * lineHeight + 10);
                     if (images?.Any(i => i != null) == true) height = Math.Max(height, 110);
-                    if (y + height > Height - 60) {NewPage(landscape, caption); Head();}
-                    DrawRow(chunk, widths, height, font, lineHeight, false, images);
+                    if (y + height > Height - 60) {NextPage(); Head();}
+                    DrawRow(chunk, widths, height, font, lineHeight, false, images, centered: centered);
                 }
             }
             if (!any) {y += 14; Paragraph("No data available");}
         }
-        private void DrawRow(List<string>[] lines, double[] widths, double height, XFont font, double lineHeight, bool header, ReportAsset?[]? images, XBrush? headerBrush = null) {
+        private void DrawRow(List<string>[] lines, double[] widths, double height, XFont font, double lineHeight, bool header, ReportAsset?[]? images, XBrush? headerBrush = null, bool centered = false) {
             var x = Margin;
             for (var n = 0; n < widths.Length; n++) {
                 var rect = new XRect(x, y, widths[n], height);
                 gfx.DrawRectangle(Grid, header ? headerBrush ?? Blue : XBrushes.White, rect);
                 if (images?.ElementAtOrDefault(n) is ReportAsset image) DrawImage(image, new XRect(x + 4, y + 4, widths[n] - 8, height - 8));
-                else for (var l = 0; l < lines[n].Count; l++) gfx.DrawString(lines[n][l], font, XBrushes.Black, x + 4, y + 6 + font.Size + l * lineHeight);
+                else for (var l = 0; l < lines[n].Count; l++) {
+                    if (centered) gfx.DrawString(lines[n][l], font, XBrushes.Black,
+                        new XRect(x + 4, y + (height - lines[n].Count * lineHeight) / 2 + l * lineHeight, widths[n] - 8, lineHeight), XStringFormats.TopCenter);
+                    else gfx.DrawString(lines[n][l], font, XBrushes.Black, x + 4, y + 6 + font.Size + l * lineHeight);
+                }
                 x += widths[n];
             }
             y += height;
         }
         private void RegisterHeading(string title) {Heading(title, 13, true); Paragraph($"Vessel / Site: {Clean(report.SiteName)}     Location: {Clean(report.Location)}\nInspector / Prepared By: {Clean(report.PreparedBy)}");}
-        private void DrawImage(ReportAsset asset, XRect box, IReadOnlyList<ReportEquipment>? pins = null) {
+        private void DefectRegisterHeading() {
+            const double height = 54;
+            var titleWidth = BodyWidth * .64;
+            var detailsWidth = BodyWidth - titleWidth;
+            var logoWidth = BodyWidth * .075;
+            var detailsX = Margin + titleWidth;
+            gfx.DrawRectangle(Grid, Margin, y, titleWidth, height);
+            CoverText("EX HAZARDOUS AREA EQUIPMENT DEFECT REGISTER",
+                new XRect(Margin + 8, y, titleWidth - logoWidth - 16, height), 13, true, true);
+            if (report.OurCompanyLogo is not null) DrawImage(report.OurCompanyLogo,
+                new XRect(detailsX - logoWidth + 4, y + 6, logoWidth - 10, height - 12), blankIfUnavailable: true);
+            var details = new[] {"Ex-Surveyor : " + Clean(report.PreparedBy), "Vessel / Site : " + Clean(report.SiteName), "Location : " + Clean(report.Location)};
+            for (var row = 0; row < details.Length; row++) {
+                var rowY = y + row * height / 3;
+                gfx.DrawRectangle(Grid, detailsX, rowY, detailsWidth, height / 3);
+                CoverText(details[row], new XRect(detailsX + 5, rowY + 2, detailsWidth - 10, height / 3 - 4), 8);
+            }
+            y += height;
+        }
+        private void EquipmentRegisterHeading() {
+            const double height = 54;
+            var clientWidth = BodyWidth * .095;
+            var companyWidth = BodyWidth * .075;
+            var detailsWidth = BodyWidth * .21;
+            var titleWidth = BodyWidth - clientWidth - companyWidth - detailsWidth;
+            var titleX = Margin + clientWidth;
+            var companyX = titleX + titleWidth;
+            var detailsX = companyX + companyWidth;
+            gfx.DrawRectangle(Grid, Margin, y, clientWidth, height);
+            gfx.DrawRectangle(Grid, titleX, y, titleWidth, height);
+            gfx.DrawRectangle(Grid, companyX, y, companyWidth, height);
+            CoverText("HAZARDOUS AREA EQUIPMENT REGISTER", new XRect(titleX + 8, y, titleWidth - 16, height), 13, true, true);
+            if (report.ClientLogo is not null) DrawImage(report.ClientLogo, new XRect(Margin + 6, y + 6, clientWidth - 12, height - 12), blankIfUnavailable: true);
+            if (report.OurCompanyLogo is not null) DrawImage(report.OurCompanyLogo, new XRect(companyX + 5, y + 6, companyWidth - 10, height - 12), blankIfUnavailable: true);
+            var details = new[] {"Vessel/Site : " + Clean(report.SiteName), "Location : " + Clean(report.Location), "Inspector : " + Clean(report.PreparedBy)};
+            for (var row = 0; row < details.Length; row++) {
+                var rowY = y + row * height / 3;
+                gfx.DrawRectangle(Grid, detailsX, rowY, detailsWidth, height / 3);
+                CoverText(details[row], new XRect(detailsX + 5, rowY + 2, detailsWidth - 10, height / 3 - 4), 8, true, true);
+            }
+            y += height;
+        }
+        private void DrawImage(ReportAsset asset, XRect box, IReadOnlyList<ReportEquipment>? pins = null, bool blankIfUnavailable = false) {
             try {
                 if (!bytes.TryGetValue(asset.Key, out var data) || data is null) throw new InvalidDataException("Missing image");
                 data = Orient(data);
@@ -273,7 +297,7 @@ public sealed class ProjectReportPdf(IProjectPhotoStorage storage, ILogger logge
                     }
                 }
             }
-            catch (Exception ex) {logger.LogWarning(ex, "Report image unavailable {AssetKey}", asset.Key); gfx.DrawString("Image unavailable", Font(9), XBrushes.Gray, box, XStringFormats.Center);}
+            catch (Exception ex) {logger.LogWarning(ex, "Report image unavailable {AssetKey}", asset.Key); if (!blankIfUnavailable) gfx.DrawString("Image unavailable", Font(9), XBrushes.Gray, box, XStringFormats.Center);}
         }
         private static byte[] Orient(byte[] data) {
             using var codec = SKCodec.Create(new MemoryStream(data));
@@ -295,8 +319,60 @@ public sealed class ProjectReportPdf(IProjectPhotoStorage storage, ILogger logge
             using var image = SKImage.FromBitmap(oriented); using var png = image.Encode(SKEncodedImageFormat.Png, 100);
             return png.ToArray();
         }
+        private void EquipmentIndex(ReportArea area) {
+            var equipment = area.Equipment.OrderBy(item => item.SequenceNo).ToArray();
+            var index = 0;
+            const double gap = 18;
+            const double headerHeight = 24;
+            while (index < equipment.Length) {
+                ct.ThrowIfCancellationRequested();
+                NewPage(true); Heading("AREA EQUIPMENT INDEX - " + area.Name);
+                var blockWidth = (BodyWidth - gap * 2) / 3;
+                double[] widths = [blockWidth * .14, blockWidth * .22, blockWidth * .64];
+                var tableTop = y;
+                var bottom = Height - 65;
+                for (var block = 0; block < 3; block++) {
+                    var blockX = Margin + block * (blockWidth + gap);
+                    var rowY = tableTop;
+                    DrawCells(["Sl. No", "Item #", "Description"], 9, true, headerHeight);
+                    rowY += headerHeight;
+                    for (var row = 0; row < 30 && index < equipment.Length; row++) {
+                        var item = equipment[index];
+                        var texts = new[] {item.SequenceNo.ToString(), EquipmentId(item), Clean(item.Type)};
+                        var size = 8.0;
+                        var font = Font(size, serif: true);
+                        var lineCount = texts.Select((text, column) => Wrap(text, font, widths[column] - 8).Count).Max();
+                        var height = Math.Max(18, lineCount * size * 1.15 + 6);
+                        if (row > 0 && rowY + height > bottom) break;
+                        while (rowY + height > bottom) {
+                            size *= .95; font = Font(size, serif: true);
+                            lineCount = texts.Select((text, column) => Wrap(text, font, widths[column] - 8).Count).Max();
+                            height = Math.Max(18, lineCount * size * 1.15 + 6);
+                        }
+                        DrawCells(texts, size, false, height);
+                        rowY += height;
+                        index++;
+                    }
+                    void DrawCells(string[] texts, double size, bool header, double height) {
+                        var x = blockX;
+                        var font = Font(size, header, serif: true);
+                        for (var column = 0; column < 3; column++) {
+                            if (header) gfx.DrawRectangle(Blue, x, rowY, widths[column], height);
+                            gfx.DrawRectangle(Grid, x, rowY, widths[column], height);
+                            var lines = Wrap(texts[column], font, widths[column] - 8);
+                            var textY = rowY + (height - lines.Count * size * 1.15) / 2;
+                            foreach (var line in lines) {
+                                gfx.DrawString(line, font, XBrushes.Black, new XRect(x + 4, textY, widths[column] - 8, size * 1.15), XStringFormats.TopCenter);
+                                textY += size * 1.15;
+                            }
+                            x += widths[column];
+                        }
+                    }
+                }
+            }
+        }
         private void Plan(ReportAsset plan) {
-            if (plan.ContentType != "application/pdf") {NewPage(); Heading("HAZARDOUS AREA PLAN"); DrawImage(plan, new XRect(Margin, y, BodyWidth, Height - y - 65)); return;}
+            if (plan.ContentType != "application/pdf") {NewPage(true); Heading("HAZARDOUS AREA PLAN"); DrawImage(plan, new XRect(Margin, y + 10, BodyWidth, Height - y - 80)); return;}
             try {
                 if (!bytes.TryGetValue(plan.Key, out var data) || data is null) throw new InvalidDataException("Missing PDF plan");
                 using var source = new MemoryStream(data);
@@ -423,6 +499,71 @@ public sealed class ProjectReportPdf(IProjectPhotoStorage storage, ILogger logge
                 textY += size * 1.2;
             }
         }
+        private void Introduction() {
+            var x = Margin + 10;
+            var textWidth = BodyWidth - 20;
+            var headingFont = Font(14, true, serif: true);
+            gfx.DrawString("1. Introduction", headingFont, XBrushes.Black, new XRect(x, y, textWidth, 19), XStringFormats.TopLeft);
+            gfx.DrawLine(new XPen(XColors.Black, .7), x, y + 17, x + gfx.MeasureString("1. Introduction", headingFont).Width, y + 17);
+            y += 34;
+            Mark("1.1 Executive Summary");
+            Subheading("1.1     Executive Summary");
+            var dates = report.Areas.SelectMany(a => a.Equipment).SelectMany(e => e.Inspections)
+                .Where(i => i.Date.HasValue).Select(i => i.Date!.Value).Order().ToArray();
+            var start = dates.Length == 0 ? "-" : Date(dates.First());
+            var end = dates.Length == 0 ? "-" : Date(dates.Last());
+            Justified($"This report has been written for {Clean(report.Client)} {Clean(report.SiteName)} as a result of a survey conducted from {start} to {end}. This report specifies what has been inspected and in what manner. Our Work scope was to 100% Detailed inspection of all electrical equipment’s in the hazardous area and give an independent analysis of all Ex- rated equipment so that our client {Clean(report.Client)}, would have a good idea of the condition of the rig. This survey included all safety critical equipment and systems and where possible equipment was opened up to enable equipment details to be taken. The co-operation from the rig staff was excellent and we would like to thank them for their assistance and patience during what was busy time.");
+            y += 8;
+            Mark("1.2 Applicable Standards and References");
+            Subheading("1.2     Applicable Standards and References");
+            Justified("The criteria which have been used as reference during this survey are internationally recognized standards, local legislative requirements, client’s safety and operating standards, the original equipment manufacturer’s maintenance and operating specifications and accepted oilfield operating and safety practices.");
+            y += 30;
+            var standardsFont = new XFont("Report Serif", 11, XFontStyleEx.BoldItalic);
+            gfx.DrawString("1.2.1   Following standards shall be followed for this EX. Survey", standardsFont, XBrushes.Black,
+                new XRect(x + 18, y, textWidth - 18, 18), XStringFormats.TopLeft);
+            y += 28;
+            foreach (var standard in new[] {
+                "IEC 600 79-10 (Classification of hazardous areas)",
+                "IEC 600 79-14 (Electrical installations in hazardous areas)",
+                "IEC 600 79-17 (Inspection and maintenance of electrical equipment in hazardous areas)"
+            }) {
+                var bulletX = x + 18;
+                gfx.DrawLines(new XPen(XColors.Black, .6), new[] {
+                    new XPoint(bulletX, y + 3), new XPoint(bulletX + 6, y + 6), new XPoint(bulletX, y + 9),
+                    new XPoint(bulletX + 2, y + 6), new XPoint(bulletX, y + 3)
+                });
+                var lines = Wrap(standard, Font(11, serif: true), textWidth - 36);
+                foreach (var line in lines) {
+                    gfx.DrawString(line, Font(11, serif: true), XBrushes.Black, new XRect(x + 36, y, textWidth - 36, 18), XStringFormats.TopLeft);
+                    y += 18;
+                }
+                y += 10;
+            }
+            void Subheading(string title) {
+                if (y + 40 > Height - 60) NewPage();
+                gfx.DrawString(title, Font(12, true, serif: true), XBrushes.Black, new XRect(x, y, textWidth, 18), XStringFormats.TopLeft);
+                y += 28;
+            }
+            void Justified(string paragraph) {
+                var font = Font(11, serif: true);
+                var lines = Wrap(paragraph, font, textWidth);
+                for (var index = 0; index < lines.Count; index++) {
+                    if (y + 18 > Height - 60) NewPage();
+                    var words = lines[index].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    if (index == lines.Count - 1 || words.Length < 2) {
+                        gfx.DrawString(lines[index], font, XBrushes.Black, new XRect(x, y, textWidth, 18), XStringFormats.TopLeft);
+                    } else {
+                        var spacing = (textWidth - words.Sum(word => gfx.MeasureString(word, font).Width)) / (words.Length - 1);
+                        var wordX = x;
+                        foreach (var word in words) {
+                            gfx.DrawString(word, font, XBrushes.Black, new XRect(wordX, y, gfx.MeasureString(word, font).Width + .1, 18), XStringFormats.TopLeft);
+                            wordX += gfx.MeasureString(word, font).Width + spacing;
+                        }
+                    }
+                    y += 18;
+                }
+            }
+        }
         private void RevisionHistory() {
             var tableWidth = BodyWidth * .92;
             var tableLeft = (Width - tableWidth) / 2;
@@ -489,11 +630,11 @@ public sealed class ProjectReportPdf(IProjectPhotoStorage storage, ILogger logge
 
     private sealed class ReportFonts : IFontResolver
     {
-        public FontResolverInfo ResolveTypeface(string familyName, bool bold, bool italic) => new((familyName == "Report Serif" ? "serif" : "sans") + (bold ? "-bold" : italic ? "-italic" : ""));
+        public FontResolverInfo ResolveTypeface(string familyName, bool bold, bool italic) => new((familyName == "Report Serif" ? "serif" : "sans") + (bold ? "-bold" : "") + (italic ? "-italic" : ""));
         public byte[] GetFont(string faceName) {
             var serif = faceName.StartsWith("serif"); var bold = faceName.Contains("bold"); var italic = faceName.Contains("italic");
-            var windows = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Fonts), serif ? bold ? "timesbd.ttf" : italic ? "timesi.ttf" : "times.ttf" : bold ? "arialbd.ttf" : italic ? "ariali.ttf" : "arial.ttf");
-            var unix = "/usr/share/fonts/truetype/dejavu/" + (serif ? "DejaVuSerif" : "DejaVuSans") + (bold ? "-Bold" : italic ? serif ? "-Italic" : "-Oblique" : "") + ".ttf";
+            var windows = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Fonts), serif ? bold && italic ? "timesbi.ttf" : bold ? "timesbd.ttf" : italic ? "timesi.ttf" : "times.ttf" : bold && italic ? "arialbi.ttf" : bold ? "arialbd.ttf" : italic ? "ariali.ttf" : "arial.ttf");
+            var unix = "/usr/share/fonts/truetype/dejavu/" + (serif ? "DejaVuSerif" : "DejaVuSans") + (bold && italic ? serif ? "-BoldItalic" : "-BoldOblique" : bold ? "-Bold" : italic ? serif ? "-Italic" : "-Oblique" : "") + ".ttf";
             var path = File.Exists(windows) ? windows : unix;
             if (!File.Exists(path)) throw new InvalidOperationException("Report fonts are missing. Install Arial/Times New Roman on Windows or DejaVu fonts on Linux.");
             return File.ReadAllBytes(path);

@@ -106,6 +106,19 @@ internal static class ReportChecks
         Check(pdf.PageCount >= 18 && pdf.Pages.Cast<PdfPage>().Any(p => p.Width.Point > p.Height.Point), "Reference-style report includes portrait sections and landscape tables");
         var scratch = Path.GetFullPath("../tmp/pdfs/reports"); Directory.CreateDirectory(scratch);
         await File.WriteAllBytesAsync(Path.Combine(scratch, "reference-template-test.pdf"), result);
+        var pngReport = report with {HazardousAreaPlan = report.HazardousAreaPlan! with {ContentType = "image/png", StorageKey = "layout.png"}};
+        var pngResult = await new ProjectReportPdf(storage, NullLogger.Instance).Generate(pngReport, default);
+        using var pngDocument = PdfReader.Open(new MemoryStream(pngResult), PdfDocumentOpenMode.Import);
+        Check(pngDocument.Pages[5].Width.Point > 1000 && pngDocument.Pages[5].Width.Point > pngDocument.Pages[5].Height.Point,
+            "PNG Hazardous Area Plan uses the same large A3 landscape page as area layouts");
+        await File.WriteAllBytesAsync(Path.Combine(scratch, "hazardous-plan-png-test.pdf"), pngResult);
+        var indexReport = report with {HazardousAreaPlan = null, Areas = [new ReportArea("INDEX CONTINUATION AREA", null,
+            Enumerable.Range(1, 97).Select(number => report.Areas[0].Equipment[0] with {
+                SequenceNo = number, EquipmentId = number % 2 == 0 ? "INDEX-ITEM-" + number : null,
+                TagNumber = "INDEX-TAG-" + number, Type = number % 3 == 0 ? "LONG EQUIPMENT TYPE THAT WRAPS CLEANLY INSIDE ITS COLUMN" : "Motor", Inspections = []
+            }).ToArray())]};
+        var indexResult = await new ProjectReportPdf(storage, NullLogger.Instance).Generate(indexReport, default);
+        await File.WriteAllBytesAsync(Path.Combine(scratch, "equipment-index-test.pdf"), indexResult);
         // Exercise multiple TOC pages, table continuation and rows taller than a printable page.
         var longEquipment = report.Areas.SelectMany(a => a.Equipment).First(e => e.Inspections.Count > 0);
         var longRecord = longEquipment.Inspections.Single() with {Comments = string.Join(" ", Enumerable.Repeat("LONG-REMARK", 1800)), Photos = []};

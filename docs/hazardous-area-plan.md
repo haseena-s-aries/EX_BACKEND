@@ -1,6 +1,6 @@
 # Hazardous Area Plan
 
-Create/Edit Project now accepts an optional original JPG, JPEG or PDF after Team Assignment. Existing mandatory area creation is retained. Project Details offers authenticated viewing, with an explicitly loaded image preview to avoid fetching large files on page load.
+Create/Edit Project now accepts an optional original JPG, JPEG, PNG or PDF after Team Assignment. Existing mandatory area creation is retained. Project Details offers authenticated viewing, with an explicitly loaded image preview to avoid fetching large files on page load.
 
 ## API and storage
 
@@ -8,7 +8,7 @@ Create/Edit Project now accepts an optional original JPG, JPEG or PDF after Team
 - For an upload, send the same project DTO fields as multipart form fields and one optional `hazardousAreaPlan` file. File storage and the database save share the existing project action; no separate partially committed upload is required.
 - Responses include nullable `hazardousAreaPlanPath`, `hazardousAreaPlanFileName`, and `hazardousAreaPlanContentType`. The path is an API URL, never a physical storage path.
 - `GET /api/projects/{id}/hazardous-area-plan` uses existing JWT/project access rules, streams the original file, supports HTTP ranges, and disables browser caching. No public/static storage endpoint is added.
-- Storage reuses `IProjectPhotoStorage` and the configured private root, under `plans/{projectId}/{random-file-name}`. Existing configured file-size limits apply. Extension, MIME and JPEG/PDF signatures are validated server-side.
+- Storage reuses `IProjectPhotoStorage` and the configured private root, under `plans/{projectId}/{random-file-name}`. Existing configured file-size limits apply. Extension, MIME and JPEG/PNG/PDF signatures are validated server-side.
 - The original bytes remain unchanged. A failed upload/database save removes the new file and preserves the old plan; only a successful explicit replacement removes the old file.
 
 ## Database
@@ -43,3 +43,5 @@ Live checks after rebuild/restart: HTTP and HTTPS `/swagger/v1/swagger.json` bot
 
 Source backup made and hash-verified before edits:
 `C:\Users\AL414\source\repos\backups\hazardous-plan-20261006-174058`.
+
+PNG support uses the existing nullable file columns; no additional migration is needed. Image plans use the same large A3 landscape fitting area as equipment area layouts in generated reports, preserving aspect ratio and the uploaded original. Uploaded PDF plans retain original vector pages and their existing orientation-aware fitting.

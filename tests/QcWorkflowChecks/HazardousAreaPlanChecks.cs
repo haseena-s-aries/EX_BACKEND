@@ -22,7 +22,8 @@ internal static class HazardousAreaPlanChecks
             var storage = new ProjectPhotoStorage(Options.Create(new ProjectPhotoStorageSettings {RootPath = root}), new TestEnvironment(root));
             byte[] jpeg = [0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4, 5, 6, 7, 8, 0xff, 0xd9];
             byte[] pdf = "%PDF-1.7\nOriginal quality PDF bytes\n%%EOF"u8.ToArray();
-            foreach (var item in new[] {("plan.JPG", "image/jpeg", jpeg), ("plan.jpeg", "image/jpeg", jpeg), ("plan.pdf", "application/pdf", pdf)})
+            byte[] png = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWQAAAABJRU5ErkJggg==");
+            foreach (var item in new[] {("plan.JPG", "image/jpeg", jpeg), ("plan.jpeg", "image/jpeg", jpeg), ("plan.PNG", "image/png", png), ("plan.pdf", "application/pdf", pdf)})
             {
                 var stored = await storage.SaveHazardousAreaPlanAsync(File(item.Item1, item.Item2, item.Item3), Guid.NewGuid(), default);
                 var content = (await storage.OpenReadAsync(stored.RelativePath))!;
@@ -32,7 +33,7 @@ internal static class HazardousAreaPlanChecks
             foreach (var item in new[] {("plan.png", "image/png", jpeg), ("plan.pdf", "image/jpeg", pdf), ("plan.jpg", "image/jpeg", pdf), ("plan.pdf", "application/pdf", jpeg), ("plan.exe", "application/pdf", pdf)})
             {
                 try { await storage.SaveHazardousAreaPlanAsync(File(item.Item1, item.Item2, item.Item3), Guid.NewGuid(), default); throw new Exception("Accepted unsupported plan"); }
-                catch (ProjectPhotoValidationException ex) { Check(ex.Message == "Only JPG, JPEG and PDF files are allowed.", "Reject extension/MIME/content mismatch: " + item.Item1); }
+                catch (ProjectPhotoValidationException ex) { Check(ex.Message == "Only JPG, JPEG, PNG and PDF files are allowed.", "Reject extension/MIME/content mismatch: " + item.Item1); }
             }
             var safe = await storage.SaveHazardousAreaPlanAsync(File("../../unsafe.pdf", "application/pdf", pdf), Guid.NewGuid(), default);
             Check(safe.OriginalFileName == "unsafe.pdf" && !safe.RelativePath.Contains(".."), "Generated storage path prevents filename traversal");

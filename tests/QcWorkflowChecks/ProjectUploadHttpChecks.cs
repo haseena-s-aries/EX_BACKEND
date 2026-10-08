@@ -149,6 +149,12 @@ internal static class ProjectUploadHttpChecks
             Check(uploaded.HazardousAreaPlanFileName == "plan.pdf", "HTTP creation returns original filename");
             using var replace = Form(data, "replacement.jpeg", "image/jpeg", [0xff, 0xd8, 0xff, 1, 2, 3, 4]);
             Check((await client.PutAsync($"/api/projects/{id}", replace)).StatusCode == HttpStatusCode.OK, "Multipart edit route uploads replacement");
+            using var pngPlanForm = Form(data, "plan.PNG", "image/png", logoBytes);
+            var pngPlanResponse = await client.PutAsync($"/api/projects/{id}", pngPlanForm);
+            var pngPlan = (await pngPlanResponse.Content.ReadFromJsonAsync<ProjectResponse>(json))!;
+            Check(pngPlanResponse.StatusCode == HttpStatusCode.OK && pngPlan.HazardousAreaPlanContentType == "image/png", "PNG plan uploads and response preserves PNG MIME");
+            var pngDownload = await client.GetAsync(pngPlan.HazardousAreaPlanPath);
+            Check(pngDownload.Content.Headers.ContentType?.MediaType == "image/png" && (await pngDownload.Content.ReadAsByteArrayAsync()).SequenceEqual(logoBytes), "PNG plan download preserves original bytes and MIME");
             using var invalid = Form(data with {JobNo = "HTTP-3"}, "bad.png", "image/png", [1, 2, 3]);
             Check((await client.PostAsync("/api/projects", invalid)).StatusCode == HttpStatusCode.BadRequest, "HTTP upload rejects unsupported file");
             var download = await client.GetAsync(uploaded.HazardousAreaPlanPath);

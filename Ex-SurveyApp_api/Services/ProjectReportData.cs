@@ -107,7 +107,7 @@ public sealed class ProjectReportData(SurveyDbContext db)
         var approvedNames = reviews.Where(q => q.Status == QcReviewStatus.Approved).Select(q => Name(q.ReviewedByUserId)).Distinct().ToArray();
         return new(id, project.ProjectName, project.JobNo, project.VesselOrSiteName, project.Location, project.ClientName ?? Name(project.AssignedClientId), Name(project.AssignedSurveyorId),
             checkedNames.Length == 0 ? "-" : string.Join(", ", checkedNames), approvedNames.Length == 0 ? "-" : string.Join(", ", approvedNames), DateTimeOffset.UtcNow,
-            project.HazardousAreaPlanPath is null ? null : Asset("plan", Path.GetExtension(project.HazardousAreaPlanPath).Equals(".pdf", StringComparison.OrdinalIgnoreCase) ? "application/pdf" : "image/jpeg", project.HazardousAreaPlanPath),
+            project.HazardousAreaPlanPath is null ? null : Asset("plan", Path.GetExtension(project.HazardousAreaPlanPath).ToLowerInvariant() switch { ".pdf" => "application/pdf", ".png" => "image/png", _ => "image/jpeg" }, project.HazardousAreaPlanPath),
             areas.Select(area => {
                 var layout = layouts.FirstOrDefault(p => p.ProjectAreaId == area.Id && p.FilePath == area.LayoutImagePath) ?? layouts.FirstOrDefault(p => p.ProjectAreaId == area.Id);
                 return new ReportArea(area.AreaName, layout is null ? null : Asset("layout-" + layout.Id, "image/" + Path.GetExtension(layout.FilePath).TrimStart('.'), layout.FilePath),

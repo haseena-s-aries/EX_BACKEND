@@ -50,7 +50,7 @@ public sealed class ProjectPlanRequestBodyFilter : IOperationFilter
         schema.Properties["hazardousAreaPlan"] = new OpenApiSchema
         {
             Type = "string", Format = "binary",
-            Description = "Optional original JPG, JPEG or PDF. Omit to preserve the existing plan on edits."
+            Description = "Optional original JPG, JPEG, PNG or PDF. Omit to preserve the existing plan on edits."
         };
         operation.RequestBody ??= new OpenApiRequestBody();
         schema.Properties["clientLogo"] = new OpenApiSchema { Type = "string", Format = "binary", Description = "Optional JPG, JPEG or PNG client logo. Omit to preserve the existing logo." };

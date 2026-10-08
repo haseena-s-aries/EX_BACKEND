@@ -89,11 +89,11 @@ public class ProjectPhotoStorage : IProjectPhotoStorage
                                       file.ContentType.Equals("application/octet-stream", StringComparison.OrdinalIgnoreCase);
         if (isPlan)
         {
-            var expectedType = extension == ".pdf" ? "application/pdf" : "image/jpeg";
-            if (extension is not (".jpg" or ".jpeg" or ".pdf") ||
+            var expectedType = extension == ".pdf" ? "application/pdf" : extension == ".png" ? "image/png" : "image/jpeg";
+            if (extension is not (".jpg" or ".jpeg" or ".png" or ".pdf") ||
                 !(file.ContentType.Equals(expectedType, StringComparison.OrdinalIgnoreCase) ||
                   file.ContentType.Equals("application/octet-stream", StringComparison.OrdinalIgnoreCase)))
-                throw new ProjectPhotoValidationException("Only JPG, JPEG and PDF files are allowed.");
+                throw new ProjectPhotoValidationException("Only JPG, JPEG, PNG and PDF files are allowed.");
         }
         else if (!AllowedExtensions.Contains(extension) || !hasSupportedContentType)
             throw new ProjectPhotoValidationException("Only JPG, PNG, and WebP images are allowed.");
@@ -111,7 +111,7 @@ public class ProjectPhotoStorage : IProjectPhotoStorage
             : HasValidImageSignature(header.AsSpan(0, bytesRead), extension);
         if (!validContent)
         {
-            if (isPlan) throw new ProjectPhotoValidationException("Only JPG, JPEG and PDF files are allowed.");
+            if (isPlan) throw new ProjectPhotoValidationException("Only JPG, JPEG, PNG and PDF files are allowed.");
             throw new ProjectPhotoValidationException($"Image '{Path.GetFileName(file.FileName)}' has invalid file content.");
         }
 

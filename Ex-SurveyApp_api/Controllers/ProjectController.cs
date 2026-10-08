@@ -626,7 +626,7 @@ public class ProjectController(
         project.HazardousAreaPlanFileName,
         project.HazardousAreaPlanPath is null ? null :
             Path.GetExtension(project.HazardousAreaPlanPath).Equals(".pdf", StringComparison.OrdinalIgnoreCase)
-                ? "application/pdf" : "image/jpeg",
+                ? "application/pdf" : Path.GetExtension(project.HazardousAreaPlanPath).Equals(".png", StringComparison.OrdinalIgnoreCase) ? "image/png" : "image/jpeg",
         project.UidNumber, project.DocumentNumber, project.Revision, project.Description, project.ClientName,
         project.ClientLogoPath is null ? null : $"/api/projects/{project.Id}/client-logo",
         project.OurCompanyId, project.OurCompany is null ? null : CompanyAssets.Response(project.OurCompany));
