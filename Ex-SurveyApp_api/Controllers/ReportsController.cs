@@ -19,6 +19,7 @@ public class ReportsController(SurveyDbContext db, IProjectPhotoStorage storage,
     [HttpGet("{projectId:guid}")]
     public async Task<ActionResult<ProjectReport>> Report(Guid projectId, CancellationToken ct)
     {
+        if (User.IsInRole("Client") && !await Data.AccessibleProjects(User).AnyAsync(p => p.Id == projectId, ct)) return Forbid();
         var report = await Data.Load(projectId, User, ct);
         return report is null ? NotFound() : Ok(report);
     }
@@ -26,11 +27,18 @@ public class ReportsController(SurveyDbContext db, IProjectPhotoStorage storage,
     [HttpGet("{projectId:guid}/pdf")]
     public async Task<IActionResult> Pdf(Guid projectId, CancellationToken ct)
     {
+        if (User.IsInRole("Client") && !await Data.AccessibleProjects(User).AnyAsync(p => p.Id == projectId, ct)) return Forbid();
         var report = await Data.Load(projectId, User, ct);
         if (report is null) return NotFound();
         Response.Headers.CacheControl = "private, no-store";
         try {
             var bytes = await new ProjectReportPdf(storage, logger).Generate(report, ct);
+            var lastGeneration = await db.AuditLogs.AsNoTracking().Where(a => a.EntityType == "Project" && a.EntityId == projectId &&
+                (a.Action == "Report Generated" || a.Action == "Report Revision Available")).OrderByDescending(a => a.OccurredAt).FirstOrDefaultAsync(ct);
+            db.AuditLogs.Add(new Ex_SurveyApp_api.Models.AuditLog {EntityType = "Project", EntityId = projectId,
+                ActorId = Guid.Parse(User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value),
+                Action = lastGeneration is not null && lastGeneration.Comments != report.Revision ? "Report Revision Available" : "Report Generated", Comments = report.Revision});
+            await db.SaveChangesAsync(ct);
             var safeName = string.Concat(report.JobNumber.Where(c => char.IsLetterOrDigit(c) || c is '-' or '_'));
             return File(bytes, "application/pdf", (safeName.Length > 0 ? safeName : "project") + "_Explosion_Proof_Survey_Report.pdf");
         }
@@ -44,6 +52,7 @@ public class ReportsController(SurveyDbContext db, IProjectPhotoStorage storage,
     [HttpGet("{projectId:guid}/assets/{key}")]
     public async Task<IActionResult> Asset(Guid projectId, string key, CancellationToken ct)
     {
+        if (User.IsInRole("Client") && !await Data.AccessibleProjects(User).AnyAsync(p => p.Id == projectId, ct)) return Forbid();
         var report = await Data.Load(projectId, User, ct);
         var asset = report?.Assets.SingleOrDefault(a => a.Key == key);
         if (asset is null) return NotFound();

@@ -846,6 +846,53 @@ namespace Ex_SurveyApp_api.Migrations
                     b.ToTable("RegistrationOtps");
                 });
 
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.ReportClientRemark", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("AgainstReport")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("ClientUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("EquipmentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("FindingId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsRead")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("ReadAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Remark")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<Guid?>("ReportId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClientUserId");
+
+                    b.HasIndex("ProjectId", "CreatedAt");
+
+                    b.ToTable("ReportClientRemarks");
+                });
+
             modelBuilder.Entity("Ex_SurveyApp_api.Models.ReportRevision", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1256,6 +1303,21 @@ namespace Ex_SurveyApp_api.Migrations
                     b.HasOne("Ex_SurveyApp_api.Models.SurveySession", null)
                         .WithMany()
                         .HasForeignKey("SurveySessionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.ReportClientRemark", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("ClientUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.Project", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

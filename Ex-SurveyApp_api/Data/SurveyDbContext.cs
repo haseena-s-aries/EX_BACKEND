@@ -28,8 +28,27 @@ public class SurveyDbContext(DbContextOptions<SurveyDbContext> options) : DbCont
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<SyncBatch> SyncBatches => Set<SyncBatch>();
 
+    public DbSet<ReportClientRemark> ReportClientRemarks => Set<ReportClientRemark>();
+
+    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        // Record real updates for client activity without modifying technical workflow data.
+        foreach (var entry in ChangeTracker.Entries<Finding>().Where(e => e.State == EntityState.Modified).ToArray())
+            AuditLogs.Add(new AuditLog {EntityType = "Finding", EntityId = entry.Entity.Id, Action = entry.Entity.Status is FindingStatus.Closed or FindingStatus.Verified ? "Defect Closed" : "Defect Updated", Comments = entry.Entity.Status.ToString()});
+        foreach (var entry in ChangeTracker.Entries<Project>().Where(e => e.State == EntityState.Modified && e.Property(p => p.Status).IsModified && e.Entity.Status == ProjectStatus.Completed).ToArray())
+            AuditLogs.Add(new AuditLog {EntityType = "Project", EntityId = entry.Entity.Id, Action = "Survey Completed"});
+        return base.SaveChangesAsync(cancellationToken);
+    }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        var remark = modelBuilder.Entity<ReportClientRemark>();
+        remark.Property(r => r.Remark).HasMaxLength(4000);
+        remark.HasIndex(r => new {r.ProjectId, r.CreatedAt});
+        remark.HasOne<Project>().WithMany().HasForeignKey(r => r.ProjectId).OnDelete(DeleteBehavior.Cascade);
+        remark.HasOne<User>().WithMany().HasForeignKey(r => r.ClientUserId).OnDelete(DeleteBehavior.Restrict);
+        // Optional context IDs are validated against the assigned project by the remarks API.
+        // No extra cascades are introduced into existing Equipment/Finding/Report relationships.
         modelBuilder.Entity<User>().HasIndex(x => x.Email).IsUnique();
         modelBuilder.Entity<User>().HasOne(x => x.Manager).WithMany()
             .HasForeignKey(x => x.ManagerId).OnDelete(DeleteBehavior.Restrict);

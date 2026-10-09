@@ -12,14 +12,14 @@ public sealed record ReportAsset(string Key, string ContentType, string Url)
 }
 public sealed record ReportAnswer(int Number, string Question, string? Value, string? Comment, string? InspectionType = null);
 public sealed record ReportRevisionEntry(int Revision, DateTimeOffset GeneratedAt);
-public sealed record ReportFinding(string Observation, string? Recommendation, string? Severity, string Status, IReadOnlyList<ReportAsset> Photos);
+public sealed record ReportFinding(string Observation, string? Recommendation, string? Severity, string Status, IReadOnlyList<ReportAsset> Photos) {public Guid Id {get; init;}};
 public sealed record ReportInspection(DateTimeOffset? Date, string Inspector, string? InspectionType, string? Comments,
     string Status, string? QcComments, string? QcSeverity, string CheckedBy, DateTimeOffset? ReviewedAt,
-    IReadOnlyList<ReportAnswer> Answers, IReadOnlyList<ReportAsset> Photos, IReadOnlyList<ReportFinding> Findings);
+    IReadOnlyList<ReportAnswer> Answers, IReadOnlyList<ReportAsset> Photos, IReadOnlyList<ReportFinding> Findings) {public Guid Id {get; init;} public DateTimeOffset? ReviewStartedAt {get; init;}};
 public sealed record ReportEquipment(int SequenceNo, string TagNumber, string? EquipmentId, string Type,
     decimal XPercent, decimal YPercent, string? CircuitId, string? Location, string? Manufacturer,
-    string? ProtectionDetails, string? CertificateNumber, IReadOnlyList<ReportInspection> Inspections);
-public sealed record ReportArea(string Name, ReportAsset? Layout, IReadOnlyList<ReportEquipment> Equipment);
+    string? ProtectionDetails, string? CertificateNumber, IReadOnlyList<ReportInspection> Inspections) {public Guid Id {get; init;} public string InspectionStatus {get; init;} = "NotStarted";};
+public sealed record ReportArea(string Name, ReportAsset? Layout, IReadOnlyList<ReportEquipment> Equipment) {public Guid Id {get; init;}};
 public sealed record ProjectReport(Guid ProjectId, string ProjectName, string JobNumber, string SiteName, string Location,
     string Client, string PreparedBy, string CheckedBy, string ApprovedBy, DateTimeOffset GeneratedAt,
     ReportAsset? HazardousAreaPlan, IReadOnlyList<ReportArea> Areas)
@@ -101,7 +101,7 @@ public sealed class ProjectReportData(SurveyDbContext db)
                 s.SurveyorRemarks, status, qc?.Comments, qc?.Severity.ToString(), qc is null ? "-" : Name(qc.ReviewedByUserId), qc?.ReviewedAt,
                 answers.Where(a => a.SurveySessionId == s.Id).Select(a => new ReportAnswer(a.SortOrder, a.Text, a.Value, a.Comment,
                     templates.TryGetValue(a.ChecklistTemplateId, out var template) ? template.InspectionType.ToString() : null)).ToArray(),
-                imageFiles.Select(Photo).ToArray(), findings.Where(f => f.SurveySessionId == s.Id).Select(f => new ReportFinding(f.Observation, f.Recommendation, f.Severity, f.Status.ToString(), imageFiles.Where(p => p.FindingId == f.Id).Select(Photo).ToArray())).ToArray());
+                imageFiles.Select(Photo).ToArray(), findings.Where(f => f.SurveySessionId == s.Id).Select(f => new ReportFinding(f.Observation, f.Recommendation, f.Severity, f.Status.ToString(), imageFiles.Where(p => p.FindingId == f.Id).Select(Photo).ToArray()) {Id = f.Id}).ToArray()) {Id = s.Id, ReviewStartedAt = qc?.StartedAt};
         }
         var checkedNames = reviews.Select(q => Name(q.ReviewedByUserId)).Distinct().ToArray();
         var approvedNames = reviews.Where(q => q.Status == QcReviewStatus.Approved).Select(q => Name(q.ReviewedByUserId)).Distinct().ToArray();
@@ -112,7 +112,7 @@ public sealed class ProjectReportData(SurveyDbContext db)
                 var layout = layouts.FirstOrDefault(p => p.ProjectAreaId == area.Id && p.FilePath == area.LayoutImagePath) ?? layouts.FirstOrDefault(p => p.ProjectAreaId == area.Id);
                 return new ReportArea(area.AreaName, layout is null ? null : Asset("layout-" + layout.Id, "image/" + Path.GetExtension(layout.FilePath).TrimStart('.'), layout.FilePath),
                     equipment.Where(e => e.AreaId == area.Id).Select(e => new ReportEquipment(e.SequenceNo, e.TagNumber, e.EquipmentCode, e.Type, e.XPercent, e.YPercent, e.CircuitId,
-                        e.Location, e.Manufacturer, e.ProtectionDetails, e.CertificateNumber, sessions.Where(s => s.AreaEquipmentId == e.Id).Select(Inspection).ToArray())).ToArray());
+                        e.Location, e.Manufacturer, e.ProtectionDetails, e.CertificateNumber, sessions.Where(s => s.AreaEquipmentId == e.Id).Select(Inspection).ToArray()) {Id = e.Id, InspectionStatus = QcWorkflowStatus.InspectionStatus(sessions.FirstOrDefault(s => s.AreaEquipmentId == e.Id)?.Status, reviews.FirstOrDefault(q => q.SurveySessionId == sessions.FirstOrDefault(s => s.AreaEquipmentId == e.Id)?.Id)?.Status).ToString()}).ToArray()) {Id = area.Id};
             }).ToArray()) {Revisions = revisions, UidNumber = project.UidNumber, DocumentNumber = project.DocumentNumber,
                 Revision = project.Revision, Description = project.Description, ClientName = project.ClientName,
                 ClientLogo = project.ClientLogoPath is null ? null : Asset("client-logo", Path.GetExtension(project.ClientLogoPath).Equals(".png", StringComparison.OrdinalIgnoreCase) ? "image/png" : "image/jpeg", project.ClientLogoPath),
