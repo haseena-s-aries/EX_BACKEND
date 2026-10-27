@@ -138,6 +138,7 @@ public record ProjectAreaEquipmentResponse(
     string? Manufacturer,
     string? ProtectionDetails,
     string? CertificateNumber,
+    string? RfidTagUid,
     DateTimeOffset CreatedAt,
     string InspectionStatus); public record ProjectAreaPhotoResponse(
 

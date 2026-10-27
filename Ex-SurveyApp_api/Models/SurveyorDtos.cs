@@ -74,7 +74,8 @@ public record UpsertAreaEquipmentRequest(
     [StringLength(300)] string? Location,
     [StringLength(200)] string? Manufacturer,
     [StringLength(500)] string? ProtectionDetails,
-    [StringLength(150)] string? CertificateNumber);
+    [StringLength(150)] string? CertificateNumber,
+    [StringLength(100)] string? RfidTagUid = null);
 
 public record AreaEquipmentResponse(
     Guid Id,
@@ -91,6 +92,7 @@ public record AreaEquipmentResponse(
     string? Manufacturer,
     string? ProtectionDetails,
     string? CertificateNumber,
+    string? RfidTagUid,
     string Status,
     Guid CreatedByUserId,
     DateTimeOffset CreatedAt,
@@ -116,6 +118,7 @@ public record SurveyorEquipmentDetailsResponse(
     string? Manufacturer,
     string? ProtectionDetails,
     string? CertificateNumber,
+    string? RfidTagUid,
     DateTimeOffset CreatedAt,
     Guid? InspectionId,
     EquipmentInspectionStatus InspectionStatus,

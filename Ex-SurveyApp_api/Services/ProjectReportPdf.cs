@@ -156,7 +156,7 @@ public sealed class ProjectReportPdf(IProjectPhotoStorage storage, ILogger logge
             using var output = new MemoryStream(); pdf.Save(output, false); return output.ToArray();
         }
 
-        private Cell[] Register(ReportEquipment e, ReportArea area, ReportInspection? i) => Cells(e.SequenceNo.ToString(), EquipmentId(e), e.TagNumber, area.Name, e.Type, e.Location,
+        private Cell[] Register(ReportEquipment e, ReportArea area, ReportInspection? i) => Cells(e.SequenceNo.ToString(), EquipmentId(e) + (string.IsNullOrWhiteSpace(e.RfidTagUid) ? "" : "\nRFID UID: " + Clean(e.RfidTagUid)), e.TagNumber, area.Name, e.Type, e.Location,
             e.Manufacturer, e.CircuitId, e.ProtectionDetails, e.CertificateNumber, i?.InspectionType, Date(i?.Date), i?.Inspector, i?.Comments, i is null ? "Not inspected" : Status(i.Status));
         private Cell[] Defect(int action, ReportArea a, ReportEquipment e, ReportInspection i, string observation, string? recommendation, string status, string? severity, IReadOnlyList<ReportAsset> photos) => [
             ..Cells(action.ToString(), Date(i.Date), EquipmentId(e), e.TagNumber, a.Name, i.InspectionType, e.Type, observation, recommendation, Clean(severity) + "\n" + Status(status)),

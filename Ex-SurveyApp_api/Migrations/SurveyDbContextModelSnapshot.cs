@@ -87,6 +87,10 @@ namespace Ex_SurveyApp_api.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
 
+                    b.Property<string>("RfidTagUid")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
                     b.Property<int>("SequenceNo")
                         .HasColumnType("int");
 
@@ -122,6 +126,10 @@ namespace Ex_SurveyApp_api.Migrations
 
                     b.HasIndex("AreaId", "TagNumber")
                         .IsUnique();
+
+                    b.HasIndex("RfidTagUid")
+                        .IsUnique()
+                        .HasFilter("[RfidTagUid] IS NOT NULL");
 
                     b.ToTable("AreaEquipment");
                 });

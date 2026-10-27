@@ -213,6 +213,11 @@ public class SurveyorController(
                 x => x.AreaId == areaId && x.TagNumber == tagNumber, cancellationToken))
             return Conflict(new { error = "TagNumber already exists in this area." });
 
+        var rfidTagUid = NormalizeRfidTagUid(request.RfidTagUid);
+        if (rfidTagUid is not null && await db.AreaEquipment.AnyAsync(
+                x => x.RfidTagUid == rfidTagUid, cancellationToken))
+            return Conflict(new { error = "RFID tag UID is already assigned to another asset." });
+
         await using var transaction = db.Database.IsRelational()
             ? await db.Database.BeginTransactionAsync(
                 System.Data.IsolationLevel.Serializable, cancellationToken)
@@ -231,6 +236,7 @@ public class SurveyorController(
             YPercent = request.YPercent,
             TagNumber = tagNumber,
             EquipmentCode = TrimOrNull(request.EquipmentId),
+            RfidTagUid = rfidTagUid,
             Type = request.Type.Trim(),
             CircuitId = TrimOrNull(request.CircuitId),
             Location = TrimOrNull(request.Location),
@@ -254,7 +260,9 @@ public class SurveyorController(
         }
         catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
         {
-            return Conflict(new { error = "TagNumber already exists in this area." });
+            return Conflict(new { error = rfidTagUid is null
+                ? "TagNumber already exists in this area."
+                : "Tag number or RFID tag UID is already assigned to another asset." });
         }
 
         return StatusCode(StatusCodes.Status201Created, ToEquipmentResponse(equipment));
@@ -287,10 +295,16 @@ public class SurveyorController(
                 cancellationToken))
             return Conflict(new { error = "TagNumber already exists in this area." });
 
+        var rfidTagUid = NormalizeRfidTagUid(request.RfidTagUid);
+        if (rfidTagUid is not null && await db.AreaEquipment.AnyAsync(
+                x => x.Id != equipmentId && x.RfidTagUid == rfidTagUid, cancellationToken))
+            return Conflict(new { error = "RFID tag UID is already assigned to another asset." });
+
         equipment.XPercent = request.XPercent;
         equipment.YPercent = request.YPercent;
         equipment.TagNumber = tagNumber;
         equipment.EquipmentCode = TrimOrNull(request.EquipmentId);
+        equipment.RfidTagUid = rfidTagUid;
         equipment.Type = request.Type.Trim();
         equipment.CircuitId = TrimOrNull(request.CircuitId);
         equipment.Location = TrimOrNull(request.Location);
@@ -306,7 +320,9 @@ public class SurveyorController(
         }
         catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
         {
-            return Conflict(new { error = "TagNumber already exists in this area." });
+            return Conflict(new { error = rfidTagUid is null
+                ? "TagNumber already exists in this area."
+                : "Tag number or RFID tag UID is already assigned to another asset." });
         }
 
         return Ok(ToEquipmentResponse(equipment));
@@ -345,6 +361,29 @@ public class SurveyorController(
             return ProjectForbidden();
 
         var inspection = await GetInspectionInfo(equipmentId, cancellationToken);
+        return Ok(ToEquipmentDetailsResponse(context, inspection));
+    }
+
+    [HttpGet("equipment/by-rfid/{rfidTagUid}")]
+    public async Task<ActionResult<SurveyorEquipmentDetailsResponse>> GetEquipmentByRfid(
+        string rfidTagUid, CancellationToken cancellationToken)
+    {
+        var normalizedUid = NormalizeRfidTagUid(rfidTagUid);
+        if (normalizedUid is null)
+            return NotFound(new { error = "No equipment is linked to this RFID tag." });
+
+        var equipmentId = await db.AreaEquipment.AsNoTracking()
+            .Where(x => x.RfidTagUid == normalizedUid)
+            .Select(x => (Guid?)x.Id)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (!equipmentId.HasValue)
+            return NotFound(new { error = "No equipment is linked to this RFID tag." });
+
+        var context = await GetEquipmentContext(equipmentId.Value, tracking: false, cancellationToken);
+        if (context is null || context.Project.AssignedSurveyorId != CurrentUserId)
+            return NotFound(new { error = "No equipment is linked to this RFID tag." });
+
+        var inspection = await GetInspectionInfo(equipmentId.Value, cancellationToken);
         return Ok(ToEquipmentDetailsResponse(context, inspection));
     }
 
@@ -751,6 +790,7 @@ public class SurveyorController(
             pin.Manufacturer,
             pin.ProtectionDetails,
             pin.CertificateNumber,
+            pin.RfidTagUid,
             pin.CreatedAt,
             inspection?.InspectionId,
             status,
@@ -880,6 +920,7 @@ public class SurveyorController(
         equipment.Manufacturer,
         equipment.ProtectionDetails,
         equipment.CertificateNumber,
+        equipment.RfidTagUid,
         review is null
             ? EquipmentInspectionStatus.NotStarted.ToString()
             : GetInspectionStatus(review.SurveyStatus, review.Status).ToString(),
@@ -893,6 +934,9 @@ public class SurveyorController(
 
     private static string? TrimOrNull(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string? NormalizeRfidTagUid(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim().ToUpperInvariant();
 
     private Guid CurrentUserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 

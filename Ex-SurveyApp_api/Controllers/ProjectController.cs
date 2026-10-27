@@ -637,7 +637,7 @@ public class ProjectController(
         area.Photos.OrderByDescending(x => x.UploadedAt).Select(x => ToResponse(x, area.ProjectId)).ToArray(),
         area.EquipmentPins.OrderBy(x => x.SequenceNo).Select(x => new ProjectAreaEquipmentResponse(
             x.Id, x.SequenceNo, x.XPercent, x.YPercent, x.TagNumber, x.EquipmentCode, x.Type, x.CircuitId, x.Location,
-            x.Manufacturer, x.ProtectionDetails, x.CertificateNumber, x.CreatedAt,
+            x.Manufacturer, x.ProtectionDetails, x.CertificateNumber, x.RfidTagUid, x.CreatedAt,
             inspectionStatuses is not null && inspectionStatuses.TryGetValue(x.Id, out var status)
                 ? status.ToString()
                 : EquipmentInspectionStatus.NotStarted.ToString())).ToArray());

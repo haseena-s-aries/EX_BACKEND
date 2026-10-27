@@ -70,6 +70,7 @@ public class AreaEquipment
     public decimal YPercent { get; set; }
     public required string TagNumber { get; set; }
     public string? EquipmentCode { get; set; }
+    public string? RfidTagUid { get; set; }
     public required string Type { get; set; }
     public string? CircuitId { get; set; }
     public string? Location { get; set; }

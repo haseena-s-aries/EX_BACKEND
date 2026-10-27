@@ -67,6 +67,7 @@ public record QcAreaEquipmentResponse(
     string? Manufacturer,
     string? ProtectionDetails,
     string? CertificateNumber,
+    string? RfidTagUid,
     Guid CreatedByUserId,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
@@ -84,7 +85,8 @@ public record QcEquipmentDetailsResponse(
     string? Location,
     string? Manufacturer,
     string? ProtectionDetails,
-    string? CertificateNumber);
+    string? CertificateNumber,
+    string? RfidTagUid);
 
 public record QcChecklistAnswerResponse(
     Guid AnswerId,

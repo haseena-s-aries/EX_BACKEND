@@ -18,7 +18,8 @@ public sealed record ReportInspection(DateTimeOffset? Date, string Inspector, st
     IReadOnlyList<ReportAnswer> Answers, IReadOnlyList<ReportAsset> Photos, IReadOnlyList<ReportFinding> Findings) {public Guid Id {get; init;} public DateTimeOffset? ReviewStartedAt {get; init;}};
 public sealed record ReportEquipment(int SequenceNo, string TagNumber, string? EquipmentId, string Type,
     decimal XPercent, decimal YPercent, string? CircuitId, string? Location, string? Manufacturer,
-    string? ProtectionDetails, string? CertificateNumber, IReadOnlyList<ReportInspection> Inspections) {public Guid Id {get; init;} public string InspectionStatus {get; init;} = "NotStarted";};
+    string? ProtectionDetails, string? CertificateNumber, string? RfidTagUid,
+    IReadOnlyList<ReportInspection> Inspections) {public Guid Id {get; init;} public string InspectionStatus {get; init;} = "NotStarted";};
 public sealed record ReportArea(string Name, ReportAsset? Layout, IReadOnlyList<ReportEquipment> Equipment) {public Guid Id {get; init;}};
 public sealed record ProjectReport(Guid ProjectId, string ProjectName, string JobNumber, string SiteName, string Location,
     string Client, string PreparedBy, string CheckedBy, string ApprovedBy, DateTimeOffset GeneratedAt,
@@ -112,7 +113,8 @@ public sealed class ProjectReportData(SurveyDbContext db)
                 var layout = layouts.FirstOrDefault(p => p.ProjectAreaId == area.Id && p.FilePath == area.LayoutImagePath) ?? layouts.FirstOrDefault(p => p.ProjectAreaId == area.Id);
                 return new ReportArea(area.AreaName, layout is null ? null : Asset("layout-" + layout.Id, "image/" + Path.GetExtension(layout.FilePath).TrimStart('.'), layout.FilePath),
                     equipment.Where(e => e.AreaId == area.Id).Select(e => new ReportEquipment(e.SequenceNo, e.TagNumber, e.EquipmentCode, e.Type, e.XPercent, e.YPercent, e.CircuitId,
-                        e.Location, e.Manufacturer, e.ProtectionDetails, e.CertificateNumber, sessions.Where(s => s.AreaEquipmentId == e.Id).Select(Inspection).ToArray()) {Id = e.Id, InspectionStatus = QcWorkflowStatus.InspectionStatus(sessions.FirstOrDefault(s => s.AreaEquipmentId == e.Id)?.Status, reviews.FirstOrDefault(q => q.SurveySessionId == sessions.FirstOrDefault(s => s.AreaEquipmentId == e.Id)?.Id)?.Status).ToString()}).ToArray()) {Id = area.Id};
+                        e.Location, e.Manufacturer, e.ProtectionDetails, e.CertificateNumber, e.RfidTagUid,
+                        sessions.Where(s => s.AreaEquipmentId == e.Id).Select(Inspection).ToArray()) {Id = e.Id, InspectionStatus = QcWorkflowStatus.InspectionStatus(sessions.FirstOrDefault(s => s.AreaEquipmentId == e.Id)?.Status, reviews.FirstOrDefault(q => q.SurveySessionId == sessions.FirstOrDefault(s => s.AreaEquipmentId == e.Id)?.Id)?.Status).ToString()}).ToArray()) {Id = area.Id};
             }).ToArray()) {Revisions = revisions, UidNumber = project.UidNumber, DocumentNumber = project.DocumentNumber,
                 Revision = project.Revision, Description = project.Description, ClientName = project.ClientName,
                 ClientLogo = project.ClientLogoPath is null ? null : Asset("client-logo", Path.GetExtension(project.ClientLogoPath).Equals(".png", StringComparison.OrdinalIgnoreCase) ? "image/png" : "image/jpeg", project.ClientLogoPath),

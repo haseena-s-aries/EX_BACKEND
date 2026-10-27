@@ -101,6 +101,7 @@ public class SurveyDbContext(DbContextOptions<SurveyDbContext> options) : DbCont
         modelBuilder.Entity<AreaEquipment>().Property(x => x.YPercent).HasPrecision(5, 2);
         modelBuilder.Entity<AreaEquipment>().Property(x => x.TagNumber).HasMaxLength(100);
         modelBuilder.Entity<AreaEquipment>().Property(x => x.EquipmentCode).HasMaxLength(100);
+        modelBuilder.Entity<AreaEquipment>().Property(x => x.RfidTagUid).HasMaxLength(100);
         modelBuilder.Entity<AreaEquipment>().Property(x => x.Type).HasMaxLength(100);
         modelBuilder.Entity<AreaEquipment>().Property(x => x.CircuitId).HasMaxLength(100);
         modelBuilder.Entity<AreaEquipment>().Property(x => x.Location).HasMaxLength(300);
@@ -109,6 +110,8 @@ public class SurveyDbContext(DbContextOptions<SurveyDbContext> options) : DbCont
         modelBuilder.Entity<AreaEquipment>().Property(x => x.CertificateNumber).HasMaxLength(150);
         modelBuilder.Entity<AreaEquipment>().HasIndex(x => new { x.AreaId, x.SequenceNo }).IsUnique();
         modelBuilder.Entity<AreaEquipment>().HasIndex(x => new { x.AreaId, x.TagNumber }).IsUnique();
+        modelBuilder.Entity<AreaEquipment>().HasIndex(x => x.RfidTagUid).IsUnique()
+            .HasFilter("[RfidTagUid] IS NOT NULL");
         modelBuilder.Entity<AreaEquipment>().HasOne<Project>().WithMany(x => x.EquipmentPins).HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<AreaEquipment>().HasOne<ProjectArea>().WithMany(x => x.EquipmentPins).HasForeignKey(x => x.AreaId).OnDelete(DeleteBehavior.Cascade);
         modelBuilder.Entity<AreaEquipment>().HasOne<User>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);

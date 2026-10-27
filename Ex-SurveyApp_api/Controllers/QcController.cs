@@ -170,6 +170,7 @@ public class QcController(SurveyDbContext db, IProjectPhotoStorage photoStorage)
                 pin.Manufacturer,
                 pin.ProtectionDetails,
                 pin.CertificateNumber,
+                pin.RfidTagUid,
                 pin.CreatedByUserId,
                 pin.CreatedAt,
                 pin.UpdatedAt,
