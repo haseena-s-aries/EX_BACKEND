@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Ex_SurveyApp_api.Data;
+using Ex_SurveyApp_api.Attributes;
 using Ex_SurveyApp_api.Models;
 using Ex_SurveyApp_api.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -9,6 +10,7 @@ namespace Ex_SurveyApp_api.Controllers;
 
 [ApiController]
 [Authorize(Roles = "Client")]
+[EndpointScopeInventory(EndpointScopeKind.TenantResource)]
 [Route("api/client")]
 public class ClientDashboardController(SurveyDbContext db, IProjectPhotoStorage storage) : ControllerBase
 {

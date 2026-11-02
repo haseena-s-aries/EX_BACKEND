@@ -1,35 +1,38 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
-
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>Ex_SurveyApp_api</RootNamespace>
+    <UserSecretsId>Ex-SurveyApp-API-Development</UserSecretsId>
   </PropertyGroup>
-
   <ItemGroup>
     <EmbeddedResource Include="Assets/Reports/cover.png" LogicalName="ExSurvey.ReportCover" />
     <EmbeddedResource Include="Assets/Companies.json" LogicalName="ExSurvey.Companies" />
     <EmbeddedResource Include="Assets/CompanyLogos/*.png" LogicalName="ExSurvey.CompanyLogos.%(Filename)%(Extension)" />
   </ItemGroup>
-
+  <ItemGroup>
+    <!-- Include local production configuration for IIS deployment; keep credentials out of Git. -->
+    <Content Update="appsettings.Production.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
   <ItemGroup>
     <PackageReference Include="MailKit" Version="4.17.0" />
-    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.0" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.0" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.0" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="8.0.0" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="8.0.0">
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.13" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.13" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.13" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.13" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="10.0.13">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.15.0" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.0">
+    <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.19.2" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.19.2" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.13">
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="PDFsharp" Version="6.2.4" />
     <PackageReference Include="SkiaSharp" Version="3.119.1" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
   </ItemGroup>
-
 </Project>

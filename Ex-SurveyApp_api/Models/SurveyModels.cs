@@ -10,6 +10,7 @@ public enum FileCategory { Drawing, Checklist, EquipmentPhoto, FindingPhoto, Rep
 public enum QcReviewStatus { PendingReview, InReview, ChangesRequested, Approved }
 public enum QcSeverity { Low, Medium, High, Critical }
 public enum EquipmentInspectionStatus { NotStarted, InProgress, Completed, ChangesRequested, QcApproved }
+public enum ChecklistLifecycleStatus { Draft, PendingTechnicalApproval, Published, Archived }
 
 public class User
 {
@@ -28,6 +29,7 @@ public class User
 
 public class RegistrationOtp
 {
+    public const int MaximumVerificationAttempts = 5;
     public Guid Id { get; set; } = Guid.NewGuid();
     public required string Email { get; set; }
     public required string DisplayName { get; set; }
@@ -37,6 +39,9 @@ public class RegistrationOtp
     public DateTimeOffset LastSentAt { get; set; }
     public bool IsVerified { get; set; }
     public DateTimeOffset? VerifiedAt { get; set; }
+    public int VerificationAttempts { get; set; }
+    public DateTimeOffset? LockedUntil { get; set; }
+    public int ConcurrencyVersion { get; set; }
 }
 
 public class Client
@@ -94,7 +99,19 @@ public class ChecklistTemplate
     public required string Name { get; set; }
     public InspectionType InspectionType { get; set; }
     public int Version { get; set; } = 1;
+    public int DraftRevision { get; set; } = 1;
     public bool IsActive { get; set; } = true;
+    public Guid? FamilyId { get; set; }
+    public ChecklistLifecycleStatus LifecycleStatus { get; set; } = ChecklistLifecycleStatus.Published;
+    public string? StandardReference { get; set; }
+    public string? StandardEdition { get; set; }
+    public string? ControlledSourceReference { get; set; }
+    public string? ApplicableProtectionTypes { get; set; }
+    public Guid? CreatedByUserId { get; set; }
+    public DateTimeOffset? SubmittedAt { get; set; }
+    public Guid? SubmittedByUserId { get; set; }
+    public DateTimeOffset? ApprovedAt { get; set; }
+    public Guid? ApprovedByUserId { get; set; }
 }
 
 public class ChecklistQuestion
@@ -104,6 +121,15 @@ public class ChecklistQuestion
     public required string Text { get; set; }
     public int SortOrder { get; set; }
     public bool IsRequired { get; set; } = true;
+    public bool NumericReadingEnabled { get; set; }
+    public string? MeasurementUnit { get; set; }
+    public decimal? MinimumReading { get; set; }
+    public decimal? MaximumReading { get; set; }
+    public bool NumericReadingRequired { get; set; }
+    public string? SectionCode { get; set; }
+    public string? ApplicableProtectionTypes { get; set; }
+    public bool RequireRemarkOnFail { get; set; }
+    public string? ResponseScaleCode { get; set; }
 }
 
 public class SurveySession

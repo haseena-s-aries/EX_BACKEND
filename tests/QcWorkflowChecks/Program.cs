@@ -10,9 +10,37 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 
 var ct = CancellationToken.None;
+if (args.Contains("--bootstrap-checks")) { await BootstrapChecks.Run(); return; }
+if (args.Contains("--security-checks")) { await OtpSecurityChecks.Run(); return; }
+if (args.Contains("--migration-script-check")) { MigrationChecks.RunOtpSecurityScript(); return; }
+if (args.Contains("--tenant-migration-script-check")) { MigrationChecks.RunTenantFoundationScript(); return; }
+if (args.Contains("--tenant-foundation-checks")) { await TenantFoundationChecks.Run(); return; }
+if (args.Contains("--tenant-backfill-checks")) { await TenantBackfillChecks.Run(); return; }
+if (args.Contains("--local-sql-diagnostic")) { await LocalSqlDiagnostics.Run(); return; }
+if (args.Contains("--localdb-sql-diagnostic")) { await LocalSqlDiagnostics.Run("Server=(localdb)\\ExSurveySprint2;Database=master;Integrated Security=True;Encrypt=True;TrustServerCertificate=False;Connect Timeout=5;Application Name=ExSurvey-LocalDB-Diagnostic"); return; }
+if (args.Contains("--prepare-localdb-test-database")) { await LocalSqlDiagnostics.PrepareIsolatedTestDatabaseAsync(); return; }
+if (args.Contains("--inspection-activity-sql-checks")) { await InspectionActivitySqlChecks.Run(); return; }
+if (args.Contains("--seed-localdb-ui-e2e")) { await LocalDbUiSeed.Run(); return; }
+if (args.Contains("--otp-sql-checks")) { await OtpSqlChecks.Run(); return; }
+if (args.Contains("--endpoint-scope-checks")) { EndpointScopeChecks.Run(); return; }
+if (args.Contains("--inspection-activity-checks")) { await InspectionActivityChecks.Run(); return; }
+if (args.Contains("--offline-inspection-checks")) { await OfflineInspectionChecks.Run(); return; }
+if (args.Contains("--equipment-reference-document-checks")) { await EquipmentReferenceDocumentChecks.Run(); return; }
+if (args.Contains("--equipment-identification-checks")) { await EquipmentIdentificationChecks.Run(); return; }
+if (args.Contains("--inspection-planning-checks")) { InspectionPlanningChecks.Run(); return; }
+if (args.Contains("--inspection-planning-api-checks")) { await InspectionPlanningApiChecks.Run(); return; }
+if (args.Contains("--write-tenant-matrix"))
+{
+    var index = Array.IndexOf(args, "--write-tenant-matrix");
+    var outputPath = index + 1 < args.Length ? args[index + 1] : Path.Combine("..", "..", "..", "..", "docs", "ex-survey-modernization", "TENANT_ENDPOINT_ENFORCEMENT_MATRIX.md");
+    EndpointScopeChecks.WriteTenantMatrix(Path.GetFullPath(outputPath));
+    return;
+}
 if (args.Contains("--client-checks")) {await ClientDashboardChecks.Run(); return;}
 if (args.Contains("--client-sql")) {await ClientDashboardChecks.Sql(); return;}
 if (args.Contains("--report-checks")) {await ReportChecks.Run(); return;}
+if (args.Contains("--operational-report-checks")||args.Contains("--write-operational-report-samples")) {if(args.Contains("--write-operational-report-samples"))Environment.SetEnvironmentVariable("EX_SURVEY_WRITE_REPORT_SAMPLES","1");await OperationalReportChecks.Run(); return;}
+if (args.Contains("--checklist-admin-checks")) {await ChecklistAdministrationChecks.Run(); return;}
 if (args.Contains("--report-sql")) {await ReportChecks.SqlPreview(); return;}
 if (args.Contains("--verify-sql") || args.Contains("--repair-sole-reporting-link"))
 {

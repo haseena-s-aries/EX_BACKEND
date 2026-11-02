@@ -1,6 +1,7 @@
 
 
 using Ex_SurveyApp_api.Data;
+using Ex_SurveyApp_api.Attributes;
 using Ex_SurveyApp_api.Models;
 using Ex_SurveyApp_api.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -13,6 +14,7 @@ namespace Ex_SurveyApp_api.Controllers;
 
 [ApiController]
 [Authorize]
+[EndpointScopeInventory(EndpointScopeKind.TenantResource)]
 [Route("api/projects")]
 public class ProjectController(
     SurveyDbContext db,

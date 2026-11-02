@@ -1,0 +1,391 @@
+using System.Security.Claims;
+using Ex_SurveyApp_api.Contracts.V1;
+using Ex_SurveyApp_api.Data;
+using Ex_SurveyApp_api.Attributes;
+using Ex_SurveyApp_api.Models;
+using Ex_SurveyApp_api.Services;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+
+namespace Ex_SurveyApp_api.Controllers;
+
+/// <summary>Versioned additive workflow. Existing Surveyor/QC routes are unchanged.</summary>
+[ApiController]
+[Authorize]
+[EndpointScopeInventory(EndpointScopeKind.TenantResource)]
+[Route("api/v1/inspection-activities")]
+public sealed class InspectionActivitiesController(SurveyDbContext db, IInspectionActivityApplicationService activities, IOptions<InspectionActivityOptions> options, IProjectPhotoStorage photoStorage) : ControllerBase
+{
+    private Guid ActorId => Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var id) ? id : Guid.Empty;
+
+    [HttpGet("equipment/{equipmentId:guid}")]
+    [Authorize(Roles = "Surveyor,Manager,Admin,Qc")]
+    public async Task<IActionResult> History(Guid equipmentId, CancellationToken ct)
+    {
+        var projectId = await db.AreaEquipment.AsNoTracking().Where(x => x.Id == equipmentId).Select(x => (Guid?)x.ProjectId).SingleOrDefaultAsync(ct);
+        if (projectId is null || !await CanAccessProject(projectId.Value, ct)) return NotFound();
+        var rows = await (from task in db.InspectionTasks.AsNoTracking()
+                          join plan in db.InspectionPlans.AsNoTracking() on task.InspectionPlanId equals plan.Id
+                          join activity in db.InspectionActivities.AsNoTracking() on task.Id equals activity.InspectionTaskId
+                          where task.AreaEquipmentId == equipmentId && plan.ProjectId == projectId
+                          orderby activity.StartedAt descending
+                          select new { activity.Id, activity.Grade, activity.ReviewStatus, activity.StartedAt, activity.CompletedAt, activity.InspectorNameSnapshot, activity.ChecklistVersionId, activity.RowVersion })
+            .ToListAsync(ct);
+        return Ok(rows);
+    }
+
+    [HttpGet("{activityId:guid}")]
+    [Authorize(Roles = "Surveyor,Manager,Admin,Qc")]
+    public async Task<IActionResult> Detail(Guid activityId, CancellationToken ct)
+    {
+        var activity = await db.InspectionActivities.AsNoTracking().SingleOrDefaultAsync(x => x.Id == activityId, ct);
+        if (activity is null) return NotFound();
+        var projectId = await (from task in db.InspectionTasks join plan in db.InspectionPlans on task.InspectionPlanId equals plan.Id where task.Id == activity.InspectionTaskId select plan.ProjectId).SingleAsync(ct);
+        if (projectId is null || !await CanAccessProject(projectId.Value, ct)) return NotFound();
+        var checkpoints = await (from definition in db.CheckpointDefinitionSnapshots.AsNoTracking()
+                                 where definition.ChecklistVersionSnapshotId == activity.ChecklistVersionId
+                                 orderby definition.SortOrder
+                                 select new { definition.Id, definition.QuestionCode, definition.QuestionText, definition.IsRequired, definition.SortOrder, definition.SectionCode, definition.RequireRemarkOnFail, definition.ResponseScaleCode, definition.ApplicabilityCode, definition.NumericReadingEnabled, definition.NumericReadingRequired, definition.MeasurementUnit, definition.MinimumReading, definition.MaximumReading })
+            .ToListAsync(ct);
+        var checklist = await db.ChecklistVersionSnapshots.AsNoTracking().Where(x => x.Id == activity.ChecklistVersionId)
+            .Select(x => new {x.StandardReference, x.StandardEdition, x.ControlledSourceReference, x.ProtectionTypeSnapshot, x.VersionNumber}).SingleAsync(ct);
+        var responses = await (from response in db.CheckpointResponseRevisions.AsNoTracking()
+                                join revision in db.InspectionActivityRevisions.AsNoTracking() on response.ActivityRevisionId equals revision.Id
+                                join definition in db.CheckpointDefinitionSnapshots.AsNoTracking() on response.CheckpointDefinitionSnapshotId equals definition.Id
+                                where revision.InspectionActivityId == activityId
+                                orderby response.RevisionNumber descending
+                                select new { response.CheckpointDefinitionSnapshotId, response.Id, response.RevisionNumber, response.ResponseCode, response.Observation, response.NumericValue, response.MeasurementUnitSnapshot, response.RecordedAt, IsOutOfRange = definition.NumericReadingEnabled && response.NumericValue.HasValue && ((definition.MinimumReading.HasValue && response.NumericValue < definition.MinimumReading) || (definition.MaximumReading.HasValue && response.NumericValue > definition.MaximumReading)) })
+            .ToListAsync(ct);
+        var findings = await db.ActivityFindings.AsNoTracking().Where(x => x.InspectionActivityId == activityId).Select(x => new { x.Id, x.CheckpointResponseRevisionId, x.Observation, x.ProposedAction, x.SeverityCode, x.FaultCode, x.RequiredMaterialsOrSupport, x.ResponsibleUserId, x.StatusCode, x.ReportedAt, x.ReportedByUserId, x.DueAt }).ToListAsync(ct);
+        var findingIds = findings.Select(x => x.Id).ToArray();
+        var actionRows = await db.CorrectiveActions.AsNoTracking().Where(x => findingIds.Contains(x.ActivityFindingId)).Select(x => new { x.Id, x.ActivityFindingId, x.ActionReference, x.SupplementaryInformation, x.ProposedAction, x.RectificationDescription, x.ExternalWorkOrderReference, x.ResponsibleUserId, x.ResponsibleParty, x.Status, x.RectificationAt, x.AriesVerifierUserId, x.AriesVerifiedAt, x.ClientDecisionUserId, x.ClientDecisionAt, x.LastDecisionComment }).ToListAsync(ct);
+        var actionIds = actionRows.Select(x => x.Id).ToArray();
+        var actionHistory = await db.CorrectiveActionEvents.AsNoTracking().Where(x => actionIds.Contains(x.CorrectiveActionId)).OrderBy(x => x.OccurredAt).Select(x => new { x.Id, x.CorrectiveActionId, x.Kind, x.ResultingStatus, x.ActorUserId, x.Comment, x.RectificationDescription, x.RectificationAt, x.WorkOrderReference, x.ResponsibleParty, x.OccurredAt }).ToListAsync(ct);
+        var actionEvidence = await (from actionEvidenceRow in db.ActivityEvidence.AsNoTracking() join file in db.Files.AsNoTracking() on actionEvidenceRow.SurveyFileId equals file.Id join ev in db.CorrectiveActionEvents.AsNoTracking() on actionEvidenceRow.CorrectiveActionEventId equals ev.Id where actionIds.Contains(ev.CorrectiveActionId) orderby actionEvidenceRow.AddedAt select new { actionEvidenceRow.Id, ev.CorrectiveActionId, actionEvidenceRow.Role, actionEvidenceRow.Caption, actionEvidenceRow.AddedByUserId, actionEvidenceRow.AddedAt, file.FileName, file.ContentType, Url = $"/api/v1/inspection-activities/{activityId:D}/photos/{actionEvidenceRow.Id:D}" }).ToListAsync(ct);
+        var correctiveActions = actionRows.Select(x => new { x.Id, x.ActivityFindingId, x.ActionReference, x.SupplementaryInformation, x.ProposedAction, x.RectificationDescription, x.ExternalWorkOrderReference, x.ResponsibleUserId, x.ResponsibleParty, x.Status, x.RectificationAt, x.AriesVerifierUserId, x.AriesVerifiedAt, x.ClientDecisionUserId, x.ClientDecisionAt, x.LastDecisionComment, History = actionHistory.Where(e => e.CorrectiveActionId == x.Id), Evidence = actionEvidence.Where(e => e.CorrectiveActionId == x.Id) });
+        var reviewHistory = await db.ActivityReviewEvents.AsNoTracking().Where(x => x.InspectionActivityId == activityId).OrderBy(x => x.DecidedAt).Select(x => new { x.Decision, x.Comments, x.ActorUserId, x.DecidedAt }).ToListAsync(ct);
+        var checkpointReviews = await db.CheckpointReviewEvents.AsNoTracking().Where(x => x.InspectionActivityId == activityId).OrderBy(x => x.ReviewedAt).Select(x => new { x.CheckpointResponseRevisionId, x.Decision, x.Comments, x.ReviewerUserId, x.ReviewedAt }).ToListAsync(ct);
+        var referenceDocumentsUsed=options.Value.DocumentUsageEnabled?await db.InspectionActivityDocumentUsages.AsNoTracking().Where(x=>x.InspectionActivityId==activityId).OrderBy(x=>x.OpenedAt).Select(x=>new{x.DocumentIdentity,x.DocumentRevision,x.Sha256,x.Title,x.Scope,x.ScopeId,x.OpenedAt,x.RecordedAt}).ToListAsync(ct):[];
+        var evidence = await (from item in db.ActivityEvidence.AsNoTracking() join file in db.Files.AsNoTracking() on item.SurveyFileId equals file.Id where item.InspectionActivityId == activityId orderby item.AddedAt select new { item.Id, item.CheckpointResponseRevisionId, item.Role, item.Caption, item.AddedByUserId, item.AddedAt, file.FileName, file.ContentType, Url = $"/api/v1/inspection-activities/{activityId:D}/photos/{item.Id:D}" }).ToListAsync(ct);
+        return Ok(new { activity.Id, activity.InspectionTaskId, activity.Grade, activity.ReviewStatus, activity.StartedAt, activity.CompletedAt, RowVersion = Convert.ToBase64String(activity.RowVersion), checklist, checkpoints, responses = responses.GroupBy(x => x.CheckpointDefinitionSnapshotId).Select(x => x.First()), findings, correctiveActions, reviewHistory, checkpointReviews, evidence,referenceDocumentsUsed });
+    }
+
+    [HttpPost("tasks/{taskId:guid}/activities")]
+    [Authorize(Roles = "Surveyor,Manager,Admin")]
+    public Task<IActionResult> Start(Guid taskId, CreateInspectionActivityRequest request, CancellationToken ct) => ExecuteService(async () =>
+    {
+        var result = await activities.CreateActivityAsync(taskId, request, ct);
+        return CreatedAtAction(nameof(Detail), new { activityId = result.Id }, result);
+    });
+
+    /// <summary>Starts an occurrence against the existing active checklist; creates additive plan/task/snapshot records as needed.</summary>
+    [HttpPost("equipment/{equipmentId:guid}/start")]
+    [Authorize(Roles = "Surveyor,Manager,Admin")]
+    public Task<IActionResult> StartForEquipment(Guid equipmentId, StartEquipmentActivityRequest request, CancellationToken ct) => ExecuteService(() => StartForEquipmentCore(equipmentId, request, ct));
+
+    private async Task<IActionResult> StartForEquipmentCore(Guid equipmentId, StartEquipmentActivityRequest request, CancellationToken ct)
+    {
+        if (!options.Value.Enabled) return Conflict(new { error = "Inspection activity workflow is not enabled on this installation." });
+        if (!Enum.IsDefined(request.Grade)) return BadRequest(new { error = "Select Visual, Close, or Detailed." });
+        var equipment = await db.AreaEquipment.AsNoTracking().SingleOrDefaultAsync(x => x.Id == equipmentId, ct);
+        if (equipment is null || !await CanAccessProject(equipment.ProjectId, ct)) return NotFound();
+        var actor = await db.Users.AsNoTracking().SingleAsync(x => x.Id == ActorId, ct);
+        var templates = await db.ChecklistTemplates.AsNoTracking().Where(x => x.IsActive && x.LifecycleStatus == ChecklistLifecycleStatus.Published && x.InspectionType == request.Grade).OrderByDescending(x => x.Version).ToListAsync(ct);
+        var protectionType = equipment.ExProtectionType?.Trim();
+        var template = templates.FirstOrDefault(x => ChecklistApplicability.TemplateMatches(x, request.Grade, protectionType));
+        if (template is null) return Conflict(new { error = string.IsNullOrWhiteSpace(protectionType) ? "Equipment Ex protection type is not recorded and no legacy checklist applies. Add verified equipment Ex data or have an approved applicable checklist published." : $"No approved published checklist applies to the {request.Grade} grade and Ex protection type '{protectionType}'." });
+
+        var snapshot = await db.ChecklistVersionSnapshots.SingleOrDefaultAsync(x => x.SourceChecklistTemplateId == template.Id && x.VersionNumber == template.Version && x.ProtectionTypeSnapshot == protectionType, ct);
+        if (snapshot is null)
+        {
+            var allQuestions = await db.ChecklistQuestions.AsNoTracking().Where(x => x.ChecklistTemplateId == template.Id).OrderBy(x => x.SortOrder).ToListAsync(ct);
+            var questions = allQuestions.Where(x => ChecklistApplicability.QuestionMatches(x, protectionType)).ToList();
+            if (questions.Count == 0) return Conflict(new { error = "The selected checklist has no questions." });
+            var hashInput = $"{template.Id:D}|{template.Version}|{template.StandardReference}|{template.StandardEdition}|{protectionType}\n" + string.Join("\n", questions.Select(x => $"{x.Id:D}|{x.SectionCode}|{x.SortOrder}|{x.Text}|{x.IsRequired}|{x.ResponseScaleCode}|{x.RequireRemarkOnFail}|{x.NumericReadingEnabled}|{x.MeasurementUnit}|{x.MinimumReading}|{x.MaximumReading}"));
+            snapshot = new ChecklistVersionSnapshot { SourceChecklistTemplateId = template.Id, VersionNumber = template.Version, InspectionType = template.InspectionType, SnapshotHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(hashInput))), PublishedAt = template.ApprovedAt ?? DateTimeOffset.UtcNow, PublishedByUserId = template.ApprovedByUserId ?? actor.Id, StandardReference = template.StandardReference, StandardEdition = template.StandardEdition, ControlledSourceReference = template.ControlledSourceReference, ProtectionTypeSnapshot = protectionType };
+            db.ChecklistVersionSnapshots.Add(snapshot);
+            foreach (var question in questions) db.CheckpointDefinitionSnapshots.Add(new CheckpointDefinitionSnapshot { ChecklistVersionSnapshotId = snapshot.Id, QuestionCode = question.Id.ToString("N"), QuestionVersion = template.Version, QuestionText = question.Text, SortOrder = question.SortOrder, SectionCode = question.SectionCode, ApplicabilityCode = question.ApplicableProtectionTypes ?? template.ApplicableProtectionTypes, IsRequired = question.IsRequired, ResponseScaleCode = question.ResponseScaleCode, RequireRemarkOnFail = question.RequireRemarkOnFail, NumericReadingEnabled = question.NumericReadingEnabled, MeasurementUnit = question.MeasurementUnit, MinimumReading = question.MinimumReading, MaximumReading = question.MaximumReading, NumericReadingRequired = question.NumericReadingRequired });
+            await db.SaveChangesAsync(ct);
+        }
+        var scheduledTasks = await db.InspectionTasks.Where(x => x.AreaEquipmentId == equipment.Id && x.WorkPackageId != null && (x.StatusCode == "Planned" || x.StatusCode == "InProgress") && x.PlannedGrade == request.Grade).ToListAsync(ct);
+        if (actor.Role == UserRole.Surveyor) scheduledTasks = scheduledTasks.Where(x => x.AssignedUserId == actor.Id).ToList();
+        if (scheduledTasks.Count > 1) return Conflict(new { error = "More than one active task matches this equipment and grade. Ask the planner to resolve the duplicate assignment." });
+        InspectionTask? task;
+        if (scheduledTasks.Count == 1) task = scheduledTasks[0];
+        else
+        {
+            var activeScheduledTaskExists = await db.InspectionTasks.AnyAsync(x => x.AreaEquipmentId == equipment.Id && x.WorkPackageId != null && (x.StatusCode == "Planned" || x.StatusCode == "InProgress"), ct);
+            if (activeScheduledTaskExists) return actor.Role == UserRole.Surveyor ? Forbid() : Conflict(new { error = "An active work package task exists for a different inspection grade." });
+            var plan = await db.InspectionPlans.FirstOrDefaultAsync(x => x.ProjectId == equipment.ProjectId && x.Name == "Equipment inspection activities", ct);
+            if (plan is null) { plan = new InspectionPlan { ProjectId = equipment.ProjectId, Name = "Equipment inspection activities", CreatedAt = DateTimeOffset.UtcNow }; db.InspectionPlans.Add(plan); await db.SaveChangesAsync(ct); }
+            task = await db.InspectionTasks.FirstOrDefaultAsync(x => x.InspectionPlanId == plan.Id && x.AreaEquipmentId == equipment.Id, ct);
+            if (task is null) { task = new InspectionTask { InspectionPlanId = plan.Id, AreaEquipmentId = equipment.Id, AssignedUserId = equipment.ProjectId == Guid.Empty ? null : actor.Role == UserRole.Surveyor ? actor.Id : (await db.Projects.Where(x => x.Id == equipment.ProjectId).Select(x => (Guid?)x.AssignedSurveyorId).SingleAsync(ct)) }; db.InspectionTasks.Add(task); await db.SaveChangesAsync(ct); }
+        }
+        if (task.AssignedUserId != actor.Id && actor.Role == UserRole.Surveyor) return Forbid();
+        if (task.PlannedGrade.HasValue && task.PlannedGrade.Value != request.Grade)
+            return Conflict(new { error = "Inspection grade does not match the approved work package." });
+        if (task.WorkPackageId.HasValue) task.StatusCode = "InProgress";
+        var started = request.StartedAt ?? DateTimeOffset.UtcNow;
+        var result = await activities.CreateActivityAsync(task.Id, new CreateInspectionActivityRequest(request.Grade, snapshot.Id, started, null), ct);
+        return CreatedAtAction(nameof(Detail), new { activityId = result.Id }, result);
+    }
+
+    [HttpPost("{activityId:guid}/checkpoints")]
+    [Authorize(Roles = "Surveyor,Manager,Admin")]
+    public Task<IActionResult> SaveCheckpoint(Guid activityId, SaveCheckpointResponseRequest request, CancellationToken ct) => ExecuteService(async () => Ok(await activities.SaveCheckpointResponseAsync(activityId, request, ct)));
+
+    [HttpPost("{activityId:guid}/findings")]
+    [Authorize(Roles = "Surveyor,Manager,Admin")]
+    public Task<IActionResult> AddFinding(Guid activityId, AddActivityFindingRequest request, CancellationToken ct) => ExecuteService(async () => Ok(await activities.AddFindingAsync(activityId, request, ct)));
+
+    [HttpGet("defects")]
+    [Authorize(Roles = "Surveyor,Qc,Manager,Admin,Client")]
+    public async Task<IActionResult> DefectRegister([FromQuery] string? status, [FromQuery] bool overdueOnly = false, CancellationToken ct = default)
+    {
+        if (!options.Value.Enabled) return Conflict(new { error = "Inspection activity workflow is not enabled on this installation." });
+        var rows = await (from finding in db.ActivityFindings.AsNoTracking()
+                          join activity in db.InspectionActivities.AsNoTracking() on finding.InspectionActivityId equals activity.Id
+                          join task in db.InspectionTasks.AsNoTracking() on activity.InspectionTaskId equals task.Id
+                          join plan in db.InspectionPlans.AsNoTracking() on task.InspectionPlanId equals plan.Id
+                          join project in db.Projects.AsNoTracking() on plan.ProjectId equals project.Id
+                          join response in db.CheckpointResponseRevisions.AsNoTracking() on finding.CheckpointResponseRevisionId equals response.Id
+                          join definition in db.CheckpointDefinitionSnapshots.AsNoTracking() on response.CheckpointDefinitionSnapshotId equals definition.Id
+                          join action in db.CorrectiveActions.AsNoTracking() on finding.Id equals action.ActivityFindingId into actionGroup
+                          from action in actionGroup.DefaultIfEmpty()
+                          where (User.IsInRole(nameof(UserRole.Admin)) || User.IsInRole(nameof(UserRole.Manager)) && (project.CreatedByUserId == ActorId || db.Users.Any(q => q.Id == project.AssignedQcId && q.ManagerId == ActorId)) || User.IsInRole(nameof(UserRole.Surveyor)) && project.AssignedSurveyorId == ActorId && task.AssignedUserId == ActorId || User.IsInRole(nameof(UserRole.Qc)) && project.AssignedQcId == ActorId || User.IsInRole(nameof(UserRole.Client)) && project.AssignedClientId == ActorId)
+                          orderby finding.ReportedAt descending
+                          select new { finding.Id, finding.InspectionActivityId, EquipmentId = task.AreaEquipmentId, EquipmentTag = task.AreaEquipmentId.HasValue ? db.AreaEquipment.Where(e => e.Id == task.AreaEquipmentId).Select(e => e.TagNumber).FirstOrDefault() : null, LegacyEquipmentId = task.LegacyEquipmentId, ProjectId = project.Id, Project = project.ProjectName, Grade = activity.Grade, Checkpoint = definition.QuestionText, finding.FaultCode, finding.Observation, finding.ProposedAction, finding.SeverityCode, finding.ResponsibleParty, finding.RequiredMaterialsOrSupport, finding.StatusCode, finding.ReportedAt, finding.ReportedByUserId, finding.DueAt, ActionId = action == null ? (Guid?)null : action.Id, ActionReference = action == null ? null : action.ActionReference, ActionStatus = action == null ? (CorrectiveActionStatus?)null : action.Status, ActionResponsibleParty = action == null ? null : action.ResponsibleParty, RectificationDescription = action == null ? null : action.RectificationDescription, WorkOrderReference = action == null ? null : action.ExternalWorkOrderReference, RectificationAt = action == null ? null : action.RectificationAt })
+            .ToListAsync(ct);
+        var filtered = rows.Where(x => (string.IsNullOrWhiteSpace(status) || string.Equals(status, "Outstanding", StringComparison.OrdinalIgnoreCase) && x.ActionStatus != CorrectiveActionStatus.ClientClosed || string.Equals(status, "Overdue", StringComparison.OrdinalIgnoreCase) && x.DueAt < DateTimeOffset.UtcNow && x.ActionStatus != CorrectiveActionStatus.ClientClosed || !string.Equals(status, "Outstanding", StringComparison.OrdinalIgnoreCase) && !string.Equals(status, "Overdue", StringComparison.OrdinalIgnoreCase) && string.Equals(status, x.ActionStatus?.ToString() ?? x.StatusCode, StringComparison.OrdinalIgnoreCase)) && (!overdueOnly || x.DueAt < DateTimeOffset.UtcNow && x.ActionStatus != CorrectiveActionStatus.ClientClosed)).ToArray();
+        var actionIds = filtered.Where(x => x.ActionId.HasValue).Select(x => x.ActionId!.Value).Distinct().ToArray();
+        var history = await db.CorrectiveActionEvents.AsNoTracking().Where(x => actionIds.Contains(x.CorrectiveActionId)).OrderBy(x => x.OccurredAt).Select(x => new { x.CorrectiveActionId, x.Kind, x.ResultingStatus, x.ActorUserId, x.Comment, x.RectificationDescription, x.RectificationAt, x.WorkOrderReference, x.ResponsibleParty, x.OccurredAt }).ToListAsync(ct);
+        var actionEvidence = await (from evidence in db.ActivityEvidence.AsNoTracking() join file in db.Files.AsNoTracking() on evidence.SurveyFileId equals file.Id join ev in db.CorrectiveActionEvents.AsNoTracking() on evidence.CorrectiveActionEventId equals ev.Id where actionIds.Contains(ev.CorrectiveActionId) orderby evidence.AddedAt select new { ev.CorrectiveActionId, evidence.Id, evidence.Role, evidence.Caption, evidence.AddedByUserId, evidence.AddedAt, file.FileName, file.ContentType }).ToListAsync(ct);
+        var result = filtered.Select(x =>
+        {
+            var actionHistory = x.ActionId.HasValue ? history.Where(h => h.CorrectiveActionId == x.ActionId).Select(h => (object)new { h.Kind, h.ResultingStatus, h.ActorUserId, h.Comment, h.RectificationDescription, h.RectificationAt, h.WorkOrderReference, h.ResponsibleParty, h.OccurredAt }).ToArray() : Array.Empty<object>();
+            var evidenceRows = x.ActionId.HasValue ? actionEvidence.Where(e => e.CorrectiveActionId == x.ActionId).Select(e => (object)new { e.Id, e.Role, e.Caption, e.AddedByUserId, e.AddedAt, e.FileName, e.ContentType, Url = $"/api/v1/inspection-activities/{x.InspectionActivityId:D}/photos/{e.Id:D}" }).ToArray() : Array.Empty<object>();
+            return new { x.Id, x.InspectionActivityId, x.EquipmentId, x.EquipmentTag, x.LegacyEquipmentId, x.ProjectId, x.Project, x.Grade, x.Checkpoint, x.FaultCode, x.Observation, x.ProposedAction, x.SeverityCode, x.ResponsibleParty, x.RequiredMaterialsOrSupport, x.StatusCode, x.ReportedAt, x.ReportedByUserId, x.DueAt, IsOutstanding = x.ActionStatus != CorrectiveActionStatus.ClientClosed, IsOverdue = x.DueAt < DateTimeOffset.UtcNow && x.ActionStatus != CorrectiveActionStatus.ClientClosed, x.ActionId, x.ActionReference, x.ActionStatus, x.ActionResponsibleParty, x.RectificationDescription, x.WorkOrderReference, x.RectificationAt, History = actionHistory, Evidence = evidenceRows };
+        });
+        return Ok(result);
+    }
+
+    [HttpPost("findings/{findingId:guid}/corrective-actions")]
+    [Authorize(Roles = "Surveyor,Manager,Admin")]
+    public Task<IActionResult> CreateCorrectiveAction(Guid findingId, CreateCorrectiveActionRequest request, CancellationToken ct) => ExecuteService(async () =>
+    {
+        if (request.ActivityFindingId != findingId) return BadRequest(new { error = "Finding ID in route and body must match." });
+        return Ok(await activities.CreateCorrectiveActionAsync(request, ct));
+    });
+
+    [HttpPost("corrective-actions/{actionId:guid}/rectification")]
+    [Authorize(Roles = "Surveyor,Manager,Admin")]
+    public Task<IActionResult> ReportRectification(Guid actionId, CorrectiveActionReportRequest request, CancellationToken ct) => ExecuteService(async () => Ok(await activities.ReportRectificationAsync(actionId, request, ct)));
+
+    [HttpPost("corrective-actions/{actionId:guid}/submit-verification")]
+    [Authorize(Roles = "Surveyor,Manager,Admin")]
+    public Task<IActionResult> SubmitCorrectiveAction(Guid actionId, CancellationToken ct) => ExecuteService(async () => Ok(await activities.SubmitCorrectiveActionForVerificationAsync(actionId, ct)));
+
+    [HttpPost("corrective-actions/{actionId:guid}/verification")]
+    [Authorize(Roles = "Qc,Manager,Admin")]
+    public Task<IActionResult> VerifyCorrectiveAction(Guid actionId, CorrectiveActionVerificationRequest request, CancellationToken ct) => ExecuteService(async () => Ok(await activities.VerifyCorrectiveActionAsync(actionId, request, ct)));
+
+    [HttpPost("corrective-actions/{actionId:guid}/client-closure")]
+    [Authorize(Roles = "Client")]
+    public Task<IActionResult> ClientClosure(Guid actionId, ClientClosureDecisionRequest request, CancellationToken ct) => ExecuteService(async () => Ok(await activities.DecideClientClosureAsync(actionId, request, ct)));
+
+    [HttpPost("{activityId:guid}/evidence")]
+    [Authorize(Roles = "Surveyor,Manager,Admin,Qc")]
+    public Task<IActionResult> AddEvidence(Guid activityId, AddActivityEvidenceRequest request, CancellationToken ct) => ExecuteService(async () => Ok(await activities.AddEvidenceAsync(activityId, request, ct)));
+
+    [HttpPost("{activityId:guid}/photos")]
+    [Authorize(Roles = "Surveyor,Manager,Admin,Qc")]
+    [RequestSizeLimit(11 * 1024 * 1024)]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> UploadPhoto(Guid activityId, IFormFile photo, [FromForm] Guid? checkpointResponseRevisionId, [FromForm] string? caption, CancellationToken ct)
+    {
+        if (!options.Value.Enabled) return Conflict(new { error = "Inspection activity workflow is not enabled on this installation." });
+        var activity = await db.InspectionActivities.SingleOrDefaultAsync(x => x.Id == activityId, ct);
+        if (activity is null) return NotFound();
+        if (activity.ReviewStatus is not (InspectionActivityReviewStatus.Draft or InspectionActivityReviewStatus.ChangesRequested)) return Conflict(new { error = "Evidence cannot be added after submission; create a new activity or request correction." });
+        var task = await db.InspectionTasks.SingleAsync(x => x.Id == activity.InspectionTaskId, ct);
+        if (task.AreaEquipmentId is not Guid equipmentId) return Conflict(new { error = "Photo upload currently requires modern project equipment." });
+        var projectId = await db.AreaEquipment.Where(x => x.Id == equipmentId).Select(x => (Guid?)x.ProjectId).SingleOrDefaultAsync(ct);
+        if (projectId is null || !await CanAccessProject(projectId.Value, ct)) return NotFound();
+        if (User.IsInRole(nameof(UserRole.Surveyor)) && task.AssignedUserId != ActorId) return Forbid();
+        if (checkpointResponseRevisionId is Guid responseId && !await (from response in db.CheckpointResponseRevisions join revision in db.InspectionActivityRevisions on response.ActivityRevisionId equals revision.Id where response.Id == responseId && revision.InspectionActivityId == activityId select response.Id).AnyAsync(ct)) return BadRequest(new { error = "Selected checkpoint does not belong to this activity." });
+        if (photo is null) return BadRequest(new { error = "Select an image to upload." });
+        var idempotencyKey=Request.Headers["Idempotency-Key"].FirstOrDefault();string? contentHash=null;
+        if(!string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            if(!options.Value.Enabled||idempotencyKey.Length>100)return BadRequest(new{error="Invalid offline photo idempotency key."});
+            if(photo.Length>10*1024*1024)return BadRequest(new{error="Photo exceeds the 10 MB upload limit."});
+            await using var input=photo.OpenReadStream();using var bytes=new MemoryStream();await input.CopyToAsync(bytes,ct);contentHash=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes.ToArray()));
+            var prior=await db.OfflinePhotoSyncReceipts.AsNoTracking().SingleOrDefaultAsync(x=>x.UserId==ActorId&&x.IdempotencyKey==idempotencyKey,ct);
+            if(prior is not null)
+            {
+                if(prior.ContentHash!=contentHash||prior.ActivityId!=activityId||prior.CheckpointResponseRevisionId!=checkpointResponseRevisionId)return Conflict(new{error="This photo idempotency key was previously used with different content or association."});
+                var priorEvidence=await (from evidence in db.ActivityEvidence.AsNoTracking() join file in db.Files.AsNoTracking() on evidence.SurveyFileId equals file.Id where evidence.Id==prior.EvidenceId select new{evidence.Id,evidence.InspectionActivityId,evidence.AreaEquipmentId,evidence.CheckpointResponseRevisionId,evidence.Role,evidence.Caption,evidence.AddedAt,file.FileName,file.ContentType}).SingleAsync(ct);
+                return Ok(new{priorEvidence.Id,priorEvidence.InspectionActivityId,priorEvidence.AreaEquipmentId,priorEvidence.CheckpointResponseRevisionId,priorEvidence.Role,priorEvidence.Caption,priorEvidence.AddedAt,priorEvidence.FileName,priorEvidence.ContentType,Url=$"/api/v1/inspection-activities/{activityId:D}/photos/{priorEvidence.Id:D}",duplicate=true});
+            }
+        }
+        StoredProjectPhoto stored;
+        try { stored = await photoStorage.SaveInspectionAsync(photo, projectId.Value, activityId, ct); }
+        catch (ProjectPhotoValidationException ex) { return BadRequest(new { error = ex.Message }); }
+        try
+        {
+            var actor = await db.Users.AsNoTracking().SingleAsync(x => x.Id == ActorId, ct);
+            var file = new SurveyFile { Category = FileCategory.FindingPhoto, FileName = stored.OriginalFileName, StorageKey = stored.RelativePath, ContentType = photo.ContentType, UploadedById = actor.Id };
+            db.Files.Add(file);
+            var evidence = new ActivityEvidence { SurveyFileId = file.Id, InspectionActivityId = activityId, AreaEquipmentId = equipmentId, CheckpointResponseRevisionId = checkpointResponseRevisionId, Role = ActivityEvidenceRole.Checkpoint, Caption = caption?.Trim(), AddedByUserId = actor.Id, AddedAt = DateTimeOffset.UtcNow };
+            db.ActivityEvidence.Add(evidence);
+            if(idempotencyKey is not null&&contentHash is not null)db.OfflinePhotoSyncReceipts.Add(new OfflinePhotoSyncReceipt{UserId=ActorId,IdempotencyKey=idempotencyKey,ContentHash=contentHash,ActivityId=activityId,CheckpointResponseRevisionId=checkpointResponseRevisionId,EvidenceId=evidence.Id});
+            await db.SaveChangesAsync(ct);
+            return Ok(new { evidence.Id, evidence.InspectionActivityId, evidence.AreaEquipmentId, evidence.CheckpointResponseRevisionId, evidence.Role, evidence.Caption, evidence.AddedAt, file.FileName, file.ContentType, Url = $"/api/v1/inspection-activities/{activityId:D}/photos/{evidence.Id:D}" });
+        }
+        catch
+        {
+            await photoStorage.DeleteAsync(stored.RelativePath, ct);
+            throw;
+        }
+    }
+
+    [HttpGet("{activityId:guid}/photos")]
+    [Authorize(Roles = "Surveyor,Manager,Admin,Qc,Client")]
+    public async Task<IActionResult> Photos(Guid activityId, CancellationToken ct)
+    {
+        if (!await CanAccessActivity(activityId, ct)) return NotFound();
+        var items = await (from evidence in db.ActivityEvidence.AsNoTracking() join file in db.Files.AsNoTracking() on evidence.SurveyFileId equals file.Id where evidence.InspectionActivityId == activityId orderby evidence.AddedAt select new { evidence.Id, evidence.AreaEquipmentId, evidence.LegacyEquipmentId, evidence.InspectionActivityId, evidence.CheckpointResponseRevisionId, evidence.AddedByUserId, evidence.AddedAt, evidence.Caption, file.FileName, file.ContentType, Url = $"/api/v1/inspection-activities/{activityId:D}/photos/{evidence.Id:D}" }).ToListAsync(ct);
+        return Ok(items);
+    }
+
+    [HttpGet("{activityId:guid}/photos/{evidenceId:guid}")]
+    [Authorize(Roles = "Surveyor,Manager,Admin,Qc,Client")]
+    public async Task<IActionResult> Photo(Guid activityId, Guid evidenceId, CancellationToken ct)
+    {
+        if (!await CanAccessActivity(activityId, ct)) return NotFound();
+        var row = await (from evidence in db.ActivityEvidence.AsNoTracking() join file in db.Files.AsNoTracking() on evidence.SurveyFileId equals file.Id where evidence.InspectionActivityId == activityId && evidence.Id == evidenceId select new { file.StorageKey, file.FileName, file.ContentType }).SingleOrDefaultAsync(ct);
+        if (row is null) return NotFound();
+        var content = await photoStorage.OpenReadAsync(row.StorageKey, ct);
+        return content is null ? NotFound() : File(content.Stream, row.ContentType, row.FileName);
+    }
+
+    [HttpPost("corrective-actions/{actionId:guid}/photos")]
+    [Authorize(Roles = "Surveyor,Manager,Admin,Qc")]
+    [RequestSizeLimit(11 * 1024 * 1024)]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> UploadCorrectiveActionPhoto(Guid actionId, IFormFile photo, [FromForm] ActivityEvidenceRole role, [FromForm] string? caption, CancellationToken ct)
+    {
+        if (!options.Value.Enabled) return Conflict(new { error = "Inspection activity workflow is not enabled on this installation." });
+        if (role is not (ActivityEvidenceRole.Before or ActivityEvidenceRole.After or ActivityEvidenceRole.Correction)) return BadRequest(new { error = "Corrective-action evidence must be Before, After, or Correction." });
+        var row = await (from action in db.CorrectiveActions join finding in db.ActivityFindings on action.ActivityFindingId equals finding.Id join activity in db.InspectionActivities on finding.InspectionActivityId equals activity.Id join task in db.InspectionTasks on activity.InspectionTaskId equals task.Id where action.Id == actionId select new { Action = action, Finding = finding, Activity = activity, Task = task }).SingleOrDefaultAsync(ct);
+        if (row is null) return NotFound();
+        if (row.Task.AreaEquipmentId is not Guid equipmentId) return Conflict(new { error = "Corrective-action photo upload requires modern project equipment." });
+        var projectId = await db.AreaEquipment.Where(x => x.Id == equipmentId).Select(x => (Guid?)x.ProjectId).SingleOrDefaultAsync(ct);
+        if (projectId is null || !await CanAccessProject(projectId.Value, ct)) return NotFound();
+        if (User.IsInRole(nameof(UserRole.Surveyor)) && row.Task.AssignedUserId != ActorId && row.Action.ResponsibleUserId != ActorId) return Forbid();
+        if (photo is null) return BadRequest(new { error = "Select an image to upload." });
+        StoredProjectPhoto stored;
+        try { stored = await photoStorage.SaveInspectionAsync(photo, projectId.Value, row.Activity.Id, ct); }
+        catch (ProjectPhotoValidationException ex) { return BadRequest(new { error = ex.Message }); }
+        try
+        {
+            var actor = await db.Users.AsNoTracking().SingleAsync(x => x.Id == ActorId, ct);
+            var file = new SurveyFile { Category = FileCategory.FindingPhoto, FileName = stored.OriginalFileName, StorageKey = stored.RelativePath, ContentType = photo.ContentType, UploadedById = actor.Id };
+            var actionEvent = new CorrectiveActionEvent { CorrectiveActionId = row.Action.Id, Kind = CorrectiveActionEventKind.EvidenceAdded, ResultingStatus = row.Action.Status, ActorUserId = actor.Id, Comment = caption?.Trim(), OccurredAt = DateTimeOffset.UtcNow };
+            db.Files.Add(file); db.CorrectiveActionEvents.Add(actionEvent);
+            var evidence = new ActivityEvidence { SurveyFileId = file.Id, InspectionActivityId = row.Activity.Id, AreaEquipmentId = equipmentId, CorrectiveActionEventId = actionEvent.Id, Role = role, Caption = caption?.Trim(), AddedByUserId = actor.Id, AddedAt = DateTimeOffset.UtcNow };
+            db.ActivityEvidence.Add(evidence); await db.SaveChangesAsync(ct);
+            return Ok(new { evidence.Id, ActionId = actionId, evidence.InspectionActivityId, evidence.AreaEquipmentId, evidence.Role, evidence.Caption, evidence.AddedAt, file.FileName, file.ContentType, Url = $"/api/v1/inspection-activities/{row.Activity.Id:D}/photos/{evidence.Id:D}" });
+        }
+        catch { await photoStorage.DeleteAsync(stored.RelativePath, ct); throw; }
+    }
+
+    [HttpPost("{activityId:guid}/submit")]
+    [Authorize(Roles = "Surveyor,Manager,Admin")]
+    public Task<IActionResult> Submit(Guid activityId, CancellationToken ct) => ExecuteService(async () => Ok(await activities.SubmitForReviewAsync(activityId, ct)));
+
+    [HttpGet("qc/queue")]
+    [Authorize(Roles = "Qc,Manager,Admin")]
+    public async Task<IActionResult> QcQueue(CancellationToken ct)
+    {
+        var actor = ActorId;
+        var rows = await (from activity in db.InspectionActivities.AsNoTracking()
+                          join task in db.InspectionTasks.AsNoTracking() on activity.InspectionTaskId equals task.Id
+                          join plan in db.InspectionPlans.AsNoTracking() on task.InspectionPlanId equals plan.Id
+                          join project in db.Projects.AsNoTracking() on plan.ProjectId equals project.Id
+                          where activity.ReviewStatus == InspectionActivityReviewStatus.Submitted || activity.ReviewStatus == InspectionActivityReviewStatus.InReview
+                          where (User.IsInRole(nameof(UserRole.Admin)) || project.AssignedQcId == actor || (User.IsInRole(nameof(UserRole.Manager)) && project.CreatedByUserId == actor))
+                          orderby activity.StartedAt
+                          select new { activity.Id, activity.Grade, activity.ReviewStatus, activity.StartedAt, activity.InspectorNameSnapshot, project.ProjectName, EquipmentId = task.AreaEquipmentId })
+            .ToListAsync(ct);
+        return Ok(rows);
+    }
+
+    [HttpPost("{activityId:guid}/review")]
+    [Authorize(Roles = "Qc,Manager,Admin")]
+    public Task<IActionResult> Review(Guid activityId, ActivityReviewDecisionRequest request, CancellationToken ct) => ExecuteService(async () => Ok(await activities.RecordReviewAsync(activityId, request, ct)));
+
+    [HttpPost("{activityId:guid}/checkpoint-review")]
+    [Authorize(Roles = "Qc,Manager,Admin")]
+    public Task<IActionResult> ReviewCheckpoint(Guid activityId, CheckpointReviewRequest request, CancellationToken ct) => ExecuteService(async () => Ok(await activities.RecordCheckpointReviewAsync(activityId, request, ct)));
+
+    [HttpGet("checklist-templates/{templateId:guid}/questions")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> ChecklistMeasurementSettings(Guid templateId, CancellationToken ct)
+    {
+        var template = await db.ChecklistTemplates.AsNoTracking().SingleOrDefaultAsync(x => x.Id == templateId, ct);
+        if (template is null) return NotFound();
+        var questions = await db.ChecklistQuestions.AsNoTracking().Where(x => x.ChecklistTemplateId == templateId).OrderBy(x => x.SortOrder).Select(x => new { x.Id, x.Text, x.SortOrder, x.NumericReadingEnabled, x.MeasurementUnit, x.MinimumReading, x.MaximumReading, x.NumericReadingRequired }).ToListAsync(ct);
+        return Ok(new { template.Id, template.Name, template.InspectionType, template.Version, questions });
+    }
+
+    [HttpPut("checklist-templates/{templateId:guid}/questions/{questionId:guid}/measurement")]
+    [Authorize(Roles = "Admin")]
+    public Task<IActionResult> ConfigureMeasurement(Guid templateId, Guid questionId, ChecklistMeasurementConfigurationRequest request, CancellationToken ct) => ExecuteService(() => ConfigureMeasurementCore(templateId, questionId, request, ct));
+
+    private async Task<IActionResult> ConfigureMeasurementCore(Guid templateId, Guid questionId, ChecklistMeasurementConfigurationRequest request, CancellationToken ct)
+    {
+        InspectionActivityContractValidation.Validate(request);
+        var template = await db.ChecklistTemplates.SingleOrDefaultAsync(x => x.Id == templateId, ct);
+        var question = await db.ChecklistQuestions.SingleOrDefaultAsync(x => x.Id == questionId && x.ChecklistTemplateId == templateId, ct);
+        if (template is null || question is null) return NotFound();
+        if (template.Version != request.ExpectedTemplateVersion) return Conflict(new { error = "Checklist version changed. Reload configuration before saving." });
+        question.NumericReadingEnabled = request.Enabled;
+        question.MeasurementUnit = request.Enabled ? request.Unit!.Trim() : null;
+        question.MinimumReading = request.Enabled ? request.Minimum : null;
+        question.MaximumReading = request.Enabled ? request.Maximum : null;
+        question.NumericReadingRequired = request.Enabled && request.Required;
+        template.Version = checked(template.Version + 1);
+        await db.SaveChangesAsync(ct);
+        return Ok(new { TemplateId = template.Id, template.Version, QuestionId = question.Id, question.NumericReadingEnabled, question.MeasurementUnit, question.MinimumReading, question.MaximumReading, question.NumericReadingRequired });
+    }
+
+    private async Task<bool> CanAccessActivity(Guid activityId, CancellationToken ct)
+    {
+        var projectId = await (from activity in db.InspectionActivities.AsNoTracking() join task in db.InspectionTasks.AsNoTracking() on activity.InspectionTaskId equals task.Id join plan in db.InspectionPlans.AsNoTracking() on task.InspectionPlanId equals plan.Id where activity.Id == activityId select plan.ProjectId).SingleOrDefaultAsync(ct);
+        return projectId.HasValue && await CanAccessProject(projectId.Value, ct);
+    }
+
+    private async Task<bool> CanAccessProject(Guid projectId, CancellationToken ct)
+    {
+        if (User.IsInRole(nameof(UserRole.Admin))) return await db.Projects.AnyAsync(x => x.Id == projectId, ct);
+        if (User.IsInRole(nameof(UserRole.Surveyor))) return await db.Projects.AnyAsync(x => x.Id == projectId && (x.AssignedSurveyorId == ActorId || db.InspectionTasks.Any(t => t.AssignedUserId == ActorId && db.InspectionPlans.Any(p => p.Id == t.InspectionPlanId && p.ProjectId == x.Id))), ct);
+        if (User.IsInRole(nameof(UserRole.Qc))) return await db.Projects.AnyAsync(x => x.Id == projectId && x.AssignedQcId == ActorId, ct);
+        if (User.IsInRole(nameof(UserRole.Client))) return await db.Projects.AnyAsync(x => x.Id == projectId && x.AssignedClientId == ActorId, ct);
+        if (User.IsInRole(nameof(UserRole.Manager))) return await db.Projects.AnyAsync(x => x.Id == projectId && (x.CreatedByUserId == ActorId || db.Users.Any(q => q.Id == x.AssignedQcId && q.ManagerId == ActorId)), ct);
+        return false;
+    }
+
+    private async Task<IActionResult> ExecuteService(Func<Task<IActionResult>> action)
+    {
+        try { return await action(); }
+        catch (InspectionRequestConflictException ex) { return Conflict(new { error = ex.Message }); }
+        catch (UnauthorizedAccessException) { return NotFound(); }
+        catch (InvalidOperationException ex) { return Conflict(new { error = ex.Message }); }
+        catch (ArgumentException ex) { return BadRequest(new { error = ex.Message }); }
+    }
+}
+
+public sealed record StartEquipmentActivityRequest(InspectionType Grade, DateTimeOffset? StartedAt = null);

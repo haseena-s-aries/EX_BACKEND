@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using Ex_SurveyApp_api.Attributes;
 using Ex_SurveyApp_api.Data;
 using Ex_SurveyApp_api.Models;
 using Microsoft.AspNetCore.Authorization;
@@ -8,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 namespace Ex_SurveyApp_api.Controllers;
 
 [ApiController]
+[EndpointScopeInventory(EndpointScopeKind.TenantResource)]
 [Authorize(Roles = "Admin,Manager,Qc")]
 [Route("api/clients")]
 public class ClientsController(SurveyDbContext db) : ControllerBase

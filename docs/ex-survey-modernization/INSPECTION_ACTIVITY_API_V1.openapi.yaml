@@ -1,0 +1,407 @@
+openapi: 3.1.0
+info:
+  title: Ex-Survey Inspection Activity API
+  version: 1.0.0-draft
+  description: >-
+    Proposed additive API contract. All paths are INACTIVE until migration rehearsal,
+    persisted ownership verification, and product authorization approval are complete.
+  x-exsurvey-activation: inactive
+security:
+  - bearerAuth: []
+paths:
+  /api/v1/inspection-plans:
+    post:
+      operationId: createInspectionPlanV1
+      x-exsurvey-activation: inactive
+      summary: Create a project-bound inspection plan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateInspectionPlanRequest' }
+      responses:
+        '201':
+          description: Plan created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InspectionPlanResponse' }
+        '400': { description: Validation error }
+        '401': { description: Authentication required }
+        '403': { description: Role, membership, or project tenant scope denied }
+  /api/v1/inspection-tasks:
+    post:
+      operationId: createInspectionTaskV1
+      x-exsurvey-activation: inactive
+      summary: Create a task for exactly one modern or legacy equipment record
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateInspectionTaskRequest' }
+      responses:
+        '201':
+          description: Task created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InspectionTaskResponse' }
+        '400': { description: Invalid or conflicting project/equipment IDs }
+        '403': { description: Unauthorized task or tenant scope }
+  /api/v1/inspection-tasks/{taskId}/activities:
+    post:
+      operationId: createInspectionActivityV1
+      x-exsurvey-activation: inactive
+      summary: Start a new Visual, Close, or Detailed inspection activity
+      parameters:
+        - { name: taskId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateInspectionActivityRequest' }
+      responses:
+        '201':
+          description: Activity created; server returns immutable ID and row-version token
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InspectionActivityResponse' }
+        '400': { description: Grade/checklist mismatch or timestamp error }
+        '403': { description: Not assigned or tenant ownership unresolved }
+  /api/v1/inspection-activities/{activityId}/checkpoint-responses:
+    post:
+      operationId: saveCheckpointResponseV1
+      x-exsurvey-activation: inactive
+      summary: Append a checkpoint response revision
+      parameters:
+        - { name: activityId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SaveCheckpointResponseRequest' }
+      responses:
+        '201':
+          description: Response revision appended
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CheckpointResponseResponse' }
+        '400': { description: Checkpoint/version mismatch }
+        '403': { description: Activity tenant scope denied }
+        '409': { description: Stale activity row-version token }
+  /api/v1/inspection-activities/{activityId}/findings:
+    post:
+      operationId: addActivityFindingV1
+      x-exsurvey-activation: inactive
+      summary: Add a finding linked to one checkpoint response
+      parameters:
+        - { name: activityId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddActivityFindingRequest' }
+      responses:
+        '201':
+          description: Finding created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ActivityFindingResponse' }
+        '403': { description: Activity or checkpoint belongs to another tenant/resource }
+  /api/v1/inspection-activities/{activityId}/evidence:
+    post:
+      operationId: addActivityEvidenceV1
+      x-exsurvey-activation: inactive
+      summary: Link an existing authorized file to a checkpoint or corrective-action event
+      parameters:
+        - { name: activityId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddActivityEvidenceRequest' }
+      responses:
+        '201':
+          description: Evidence link created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ActivityEvidenceResponse' }
+        '403': { description: File/activity tenant scope denied }
+  /api/v1/corrective-actions:
+    post:
+      operationId: createCorrectiveActionV1
+      x-exsurvey-activation: inactive
+      summary: Record a proposed corrective action and optional external work-order reference
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateCorrectiveActionRequest' }
+      responses:
+        '201':
+          description: Corrective action created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CorrectiveActionResponse' }
+        '403': { description: Finding tenant scope denied }
+  /api/v1/inspection-activities/{activityId}/submit:
+    post:
+      operationId: submitInspectionActivityV1
+      x-exsurvey-activation: inactive
+      summary: Submit a completed activity for review
+      parameters:
+        - { name: activityId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Activity submitted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InspectionActivityResponse' }
+        '409': { description: Required checkpoints missing or activity locked }
+  /api/v1/inspection-activities/{activityId}/review:
+    post:
+      operationId: recordInspectionReviewV1
+      x-exsurvey-activation: inactive
+      summary: Record a review decision without closing related defects
+      parameters:
+        - { name: activityId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ActivityReviewDecisionRequest' }
+      responses:
+        '200':
+          description: Review event recorded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InspectionActivityResponse' }
+        '403': { description: Reviewer role or tenant scope denied }
+  /api/v1/corrective-actions/{actionId}/verification:
+    post:
+      operationId: verifyCorrectiveActionV1
+      x-exsurvey-activation: inactive
+      summary: Record Aries verification before client closure
+      parameters:
+        - { name: actionId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CorrectiveActionVerificationRequest' }
+      responses:
+        '200':
+          description: Verification recorded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CorrectiveActionResponse' }
+        '403': { description: Verifier role or tenant scope denied }
+  /api/v1/corrective-actions/{actionId}/submit-for-verification:
+    post:
+      operationId: submitCorrectiveActionForVerificationV1
+      x-exsurvey-activation: inactive
+      summary: Submit a correction with after/correction evidence for Aries verification
+      parameters:
+        - { name: actionId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Action submitted for verification
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CorrectiveActionResponse' }
+        '403': { description: Action or tenant scope denied }
+        '409': { description: Required correction evidence missing or action state invalid }
+  /api/v1/corrective-actions/{actionId}/client-decision:
+    post:
+      operationId: decideClientClosureV1
+      x-exsurvey-activation: inactive
+      summary: Accept closure, reject closure, or reopen as the assigned client
+      parameters:
+        - { name: actionId, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClientClosureDecisionRequest' }
+      responses:
+        '200':
+          description: Client decision recorded with actor/time/comment history
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CorrectiveActionResponse' }
+        '403': { description: Actor is not the assigned project client }
+        '409': { description: Invalid corrective-action transition }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    InspectionPlanResponse:
+      type: object
+      required: [id, projectId, name]
+      properties:
+        id: { type: string, format: uuid }
+        projectId: { type: string, format: uuid }
+        name: { type: string }
+        sourceReference: { type: [string, 'null'] }
+        startsAt: { type: [string, 'null'], format: date-time }
+        endsAt: { type: [string, 'null'], format: date-time }
+    InspectionTaskResponse:
+      type: object
+      required: [id, planId, kind, statusCode]
+      properties:
+        id: { type: string, format: uuid }
+        planId: { type: string, format: uuid }
+        areaEquipmentId: { type: [string, 'null'], format: uuid }
+        legacyEquipmentId: { type: [string, 'null'], format: uuid }
+        kind: { type: string, enum: [Regular, Corrective] }
+        statusCode: { type: string }
+        assignedUserId: { type: [string, 'null'], format: uuid }
+        scheduledAt: { type: [string, 'null'], format: date-time }
+    InspectionActivityResponse:
+      type: object
+      required: [id, taskId, grade, checklistVersionId, reviewStatus, startedAt, rowVersion]
+      properties:
+        id: { type: string, format: uuid }
+        taskId: { type: string, format: uuid }
+        grade: { type: string, enum: [Visual, Close, Detailed] }
+        checklistVersionId: { type: string, format: uuid }
+        reviewStatus: { type: string, enum: [Draft, Submitted, InReview, ChangesRequested, Accepted] }
+        startedAt: { type: string, format: date-time }
+        completedAt: { type: [string, 'null'], format: date-time }
+        rowVersion: { type: string, contentEncoding: base64 }
+    CheckpointResponseResponse:
+      type: object
+      required: [id, checkpointDefinitionSnapshotId, revisionNumber, workflowState, recordedAt]
+      properties:
+        id: { type: string, format: uuid }
+        checkpointDefinitionSnapshotId: { type: string, format: uuid }
+        revisionNumber: { type: integer, minimum: 1 }
+        responseCode: { type: [string, 'null'] }
+        technicalConditionCode: { type: [string, 'null'] }
+        workflowState: { type: string, enum: [Open, Reviewed, Closed] }
+        recordedAt: { type: string, format: date-time }
+    ActivityFindingResponse:
+      type: object
+      required: [id, inspectionActivityId, checkpointResponseRevisionId, statusCode]
+      properties:
+        id: { type: string, format: uuid }
+        inspectionActivityId: { type: string, format: uuid }
+        checkpointResponseRevisionId: { type: string, format: uuid }
+        statusCode: { type: string }
+    ActivityEvidenceResponse:
+      type: object
+      required: [id, surveyFileId, role, addedAt]
+      properties:
+        id: { type: string, format: uuid }
+        surveyFileId: { type: string, format: uuid }
+        checkpointResponseRevisionId: { type: [string, 'null'], format: uuid }
+        correctiveActionId: { type: [string, 'null'], format: uuid }
+        correctiveActionEventId: { type: [string, 'null'], format: uuid }
+        role: { type: string, enum: [Checkpoint, Original, Before, After, Correction, Certificate, Other] }
+        addedAt: { type: string, format: date-time }
+    CorrectiveActionResponse:
+      type: object
+      required: [id, actionReference, status, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        actionReference: { type: string }
+        status: { type: string, enum: [Proposed, Assigned, InProgress, SubmittedForVerification, Verified, ClientRejected, ClientClosed, Reopened] }
+        createdAt: { type: string, format: date-time }
+    CreateInspectionPlanRequest:
+      type: object
+      additionalProperties: false
+      required: [projectId, name]
+      properties:
+        projectId: { type: string, format: uuid }
+        name: { type: string, minLength: 1, maxLength: 200 }
+        sourceReference: { type: [string, 'null'], maxLength: 200 }
+        startsAt: { type: [string, 'null'], format: date-time }
+        endsAt: { type: [string, 'null'], format: date-time }
+    CreateInspectionTaskRequest:
+      type: object
+      additionalProperties: false
+      required: [planId, kind]
+      properties:
+        planId: { type: string, format: uuid }
+        areaEquipmentId: { type: [string, 'null'], format: uuid }
+        legacyEquipmentId: { type: [string, 'null'], format: uuid }
+        kind: { type: string, enum: [Regular, Corrective] }
+        scheduleReference: { type: [string, 'null'], maxLength: 200 }
+        workPackageReference: { type: [string, 'null'], maxLength: 200 }
+        assignedUserId: { type: [string, 'null'], format: uuid }
+        scheduledAt: { type: [string, 'null'], format: date-time }
+      description: Exactly one equipment ID must be supplied.
+    CreateInspectionActivityRequest:
+      type: object
+      additionalProperties: false
+      required: [grade, checklistVersionId, startedAt]
+      properties:
+        grade: { type: string, enum: [Visual, Close, Detailed] }
+        checklistVersionId: { type: string, format: uuid }
+        startedAt: { type: string, format: date-time }
+        completedAt: { type: [string, 'null'], format: date-time }
+      description: Inspector and ownership are resolved by the server. Grade must match the checklist version.
+    SaveCheckpointResponseRequest:
+      type: object
+      additionalProperties: false
+      required: [checkpointDefinitionSnapshotId, activityRowVersion]
+      properties:
+        checkpointDefinitionSnapshotId: { type: string, format: uuid }
+        applicabilityResultCode: { type: [string, 'null'], maxLength: 100 }
+        responseCode: { type: [string, 'null'], maxLength: 100 }
+        technicalConditionCode: { type: [string, 'null'], maxLength: 100 }
+        observation: { type: [string, 'null'], maxLength: 4000 }
+        activityRowVersion: { type: string, contentEncoding: base64 }
+    AddActivityFindingRequest:
+      type: object
+      additionalProperties: false
+      required: [checkpointResponseRevisionId, observation]
+      properties:
+        checkpointResponseRevisionId: { type: string, format: uuid }
+        observation: { type: string, minLength: 1, maxLength: 4000 }
+        proposedAction: { type: [string, 'null'], maxLength: 4000 }
+        severityCode: { type: [string, 'null'], maxLength: 100 }
+    AddActivityEvidenceRequest:
+      type: object
+      additionalProperties: false
+      required: [surveyFileId, role]
+      properties:
+        surveyFileId: { type: string, format: uuid }
+        checkpointResponseRevisionId: { type: [string, 'null'], format: uuid }
+        correctiveActionEventId: { type: [string, 'null'], format: uuid }
+        role: { type: string, enum: [Checkpoint, Original, Before, After, Correction, Certificate, Other] }
+        caption: { type: [string, 'null'], maxLength: 1000 }
+        integrityHash: { type: [string, 'null'], maxLength: 128 }
+      description: Exactly one of checkpointResponseRevisionId, correctiveActionId, or correctiveActionEventId is required.
+    CreateCorrectiveActionRequest:
+      type: object
+      additionalProperties: false
+      required: [activityFindingId, actionReference]
+      properties:
+        activityFindingId: { type: string, format: uuid }
+        actionReference: { type: string, minLength: 1, maxLength: 100 }
+        supplementaryInformation: { type: [string, 'null'], maxLength: 4000 }
+        proposedAction: { type: [string, 'null'], maxLength: 4000 }
+        externalWorkOrderReference: { type: [string, 'null'], maxLength: 200 }
+        responsibleUserId: { type: [string, 'null'], format: uuid }
+    ActivityReviewDecisionRequest:
+      type: object
+      additionalProperties: false
+      required: [decision]
+      properties:
+        decision: { type: string, enum: [InReview, ChangesRequested, Accepted] }
+        comments: { type: [string, 'null'], maxLength: 4000 }
+    CorrectiveActionVerificationRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        comments: { type: [string, 'null'], maxLength: 4000 }
+    ClientClosureDecisionRequest:
+      type: object
+      additionalProperties: false
+      required: [acceptClosure]
+      properties:
+        acceptClosure: { type: boolean }
+        comments: { type: [string, 'null'], maxLength: 4000 }
+      description: Rejection or reopening requires a reason. The assigned client is checked server-side.

@@ -77,7 +77,52 @@ public class AreaEquipment
     public string? Manufacturer { get; set; }
     public string? ProtectionDetails { get; set; }
     public string? CertificateNumber { get; set; }
+    public string? Description { get; set; }
+    public string? Model { get; set; }
+    public string? SerialNumber { get; set; }
+    public string? ExProtectionType { get; set; }
+    public string? GasGroup { get; set; }
+    public string? TemperatureClass { get; set; }
+    public string? HazardousAreaZone { get; set; }
+    public string? AmbientTemperatureRange { get; set; }
+    public string? IpRating { get; set; }
+    public string? NotifiedBody { get; set; }
+    public string? SpecialConditionsOfUse { get; set; }
+    public string? RfidIdentificationMethod { get; set; }
+    /// <summary>JSON array of metadata keys explicitly confirmed as not applicable. Null means unknown, not N/A.</summary>
+    public string? NotApplicableFieldsJson { get; set; }
+    public string ReconciliationStatus { get; set; } = "Unreviewed";
     public Guid CreatedByUserId { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
+public sealed class EquipmentTagAssignment
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid EquipmentId { get; set; }
+    public Guid ProjectId { get; set; }
+    public required string Technology { get; set; }
+    public required string NormalizedIdentifier { get; set; }
+    public bool IsActive { get; set; } = true;
+    public Guid AssignedByUserId { get; set; }
+    public DateTimeOffset AssignedAt { get; set; } = DateTimeOffset.UtcNow;
+    public required string AssignmentReason { get; set; }
+    public DateTimeOffset? DeactivatedAt { get; set; }
+    public Guid? DeactivatedByUserId { get; set; }
+    public string? DeactivationReason { get; set; }
+}
+
+public sealed class EquipmentTagHistory
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid EquipmentId { get; set; }
+    public Guid ProjectId { get; set; }
+    public Guid? AssignmentId { get; set; }
+    public required string Technology { get; set; }
+    public required string NormalizedIdentifier { get; set; }
+    public required string ActionCode { get; set; }
+    public required string Reason { get; set; }
+    public Guid ActorUserId { get; set; }
+    public DateTimeOffset OccurredAt { get; set; } = DateTimeOffset.UtcNow;
 }

@@ -1,10 +1,11 @@
 using Ex_SurveyApp_api.Data;
+using Ex_SurveyApp_api.Attributes;
 using Ex_SurveyApp_api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 namespace Ex_SurveyApp_api.Controllers;
-[ApiController, Authorize, Route("api/companies")]
+[ApiController, Authorize, EndpointScopeInventory(EndpointScopeKind.SharedReferenceData), Route("api/companies")]
 public class CompaniesController(SurveyDbContext db) : ControllerBase {
     [HttpGet]
     public async Task<IActionResult> List([FromQuery] string? search, CancellationToken ct) {

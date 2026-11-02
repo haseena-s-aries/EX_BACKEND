@@ -8,6 +8,8 @@
 **/appsettings.json
 **/appsettings.Development.json
 **/appsettings.*.local.json
+**/appsettings.TenantRehearsal.json
+**/appsettings.Production.json
 
 # User-specific files
 *.rsuser

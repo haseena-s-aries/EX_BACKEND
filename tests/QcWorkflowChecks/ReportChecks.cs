@@ -1,9 +1,12 @@
 using System.Security.Claims;
 using System.Text.Json;
+using Ex_SurveyApp_api.Controllers;
 using Ex_SurveyApp_api.Data;
 using Ex_SurveyApp_api.Models;
 using Ex_SurveyApp_api.Services;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
@@ -65,7 +68,7 @@ internal static class ReportChecks
         var area = new ProjectArea {ProjectId = project.Id, AreaName = "MAIN DECK", LayoutImagePath = "layout.png"};
         var second = new ProjectArea {ProjectId = project.Id, AreaName = "ENGINE ROOM"};
         var layout = new ProjectAreaPhoto {ProjectAreaId = area.Id, FileName = "not-visible-layout.png", FilePath = "layout.png", UploadedByUserId = manager.Id};
-        var equipment = new AreaEquipment {ProjectId = project.Id, AreaId = area.Id, SequenceNo = 1, TagNumber = "TAG-ALPHA", EquipmentCode = "EQUIP-ALPHA", Type = "Transformer", XPercent = 25, YPercent = 50, CircuitId = "CIRCUIT-1", Manufacturer = "Recorded Manufacturer", ProtectionDetails = "Recorded protection", CertificateNumber = "Recorded Certificate", Location = "Deck North", CreatedByUserId = surveyor.Id};
+        var equipment = new AreaEquipment {ProjectId = project.Id, AreaId = area.Id, SequenceNo = 1, TagNumber = "TAG-ALPHA", EquipmentCode = "EQUIP-ALPHA", Type = "Transformer", XPercent = 25, YPercent = 50, CircuitId = "CIRCUIT-1", Manufacturer = "Recorded Manufacturer", ProtectionDetails = "Recorded protection", CertificateNumber = "Recorded Certificate", Location = "Deck North", NotApplicableFieldsJson = "[\"temperatureClass\"]", CreatedByUserId = surveyor.Id};
         var uninspected = new AreaEquipment {ProjectId = project.Id, AreaId = area.Id, SequenceNo = 2, TagNumber = "TAG-BETA", Type = "Motor", XPercent = 75, YPercent = 25, CreatedByUserId = surveyor.Id};
         var template = new ChecklistTemplate {Name = "Recorded Detailed Checklist", InspectionType = InspectionType.Detailed};
         var questions = new[] {"Enclosure is intact", "Cable connections are secure", "Unused terminals are protected"}.Select((text, n) => new ChecklistQuestion {ChecklistTemplateId = template.Id, SortOrder = n + 1, Text = text}).ToArray();
@@ -78,6 +81,24 @@ internal static class ReportChecks
         await db.SaveChangesAsync();
         var loader = new ProjectReportData(db);
         var report = await loader.Load(project.Id, Principal(manager), default) ?? throw new Exception("Missing report");
+        var haer = await loader.LoadHaer(project.Id, Principal(manager), default) ?? throw new Exception("HAER unavailable");
+        Check(haer.Equipment.Count == 2 && haer.Equipment.Single(e => e.TagNumber == "TAG-ALPHA").EquipmentId == "EQUIP-ALPHA"
+            && haer.Equipment.Single(e => e.TagNumber == "TAG-ALPHA").Area == "MAIN DECK"
+            && haer.Equipment.Single(e => e.TagNumber == "TAG-ALPHA").LastInspectionGrade == "Detailed"
+            && haer.Equipment.Single(e => e.TagNumber == "TAG-BETA").LastInspectionGrade is null,
+            "HAER register exports equipment, hazardous-area metadata, latest grade and uninspected equipment from synthetic project fixtures");
+        var haerRow = haer.Equipment.Single(e => e.TagNumber == "TAG-ALPHA");
+        Check(haerRow.EquipmentRecordId == equipment.Id && haerRow.MetadataAvailability["temperatureClass"] == "NotApplicable" && haerRow.MetadataAvailability["model"] == "Unknown",
+            "HAER distinguishes explicitly confirmed Not Applicable from unknown metadata and returns the editable record ID");
+        Check(haerRow.InspectionHistory.Single().Grade == "Detailed" && haerRow.InspectionHistory.Single().Result == "Fail" && haerRow.InspectionHistory.Single().Status == "ChangesRequested" && haerRow.OutstandingDefectStatuses.Contains("Open: 1"),
+            "HAER keeps per-equipment inspection history and actionable defect state details");
+        var haerExcel = HaerReportExports.Excel(haer);
+        var haerExcelText = System.Text.Encoding.UTF8.GetString(haerExcel);
+        Check(haerExcelText.Contains("urn:schemas-microsoft-com:office:spreadsheet") && haerExcelText.Contains("Not Applicable") && haerExcelText.Contains("Unknown / not recorded") && haerExcelText.Contains("Equipment Inspection History") && haerExcelText.Contains("Open: 1"),
+            "HAER Excel-compatible export carries register fields and explicit unknown/N/A states");
+        var haerPdf = HaerReportExports.Pdf(haer);
+        using (var haerPdfDocument = PdfReader.Open(new MemoryStream(haerPdf), PdfDocumentOpenMode.Import))
+            Check(haerPdfDocument.PageCount > 0, "HAER PDF export generates a readable PDF for synthetic equipment data");
         Check(report.Areas.Count == 2 && report.Areas[0].Equipment.Count + report.Areas[1].Equipment.Count == 2, "Report loads actual project areas and equipment in one aggregate");
         Check(report.Assets.Count() == 3 && report.PreparedBy == surveyor.DisplayName && report.Client == client.DisplayName && report.CheckedBy == manager.DisplayName, "Report resolves actual assignments and asset references");
         var record = report.Areas.SelectMany(a => a.Equipment).Single(e => e.SequenceNo == 1).Inspections.Single();
@@ -89,7 +110,15 @@ internal static class ReportChecks
         var inferredInspection = inferred!.Areas.SelectMany(a => a.Equipment).Single(e => e.SequenceNo == 1).Inspections.Single();
         Check(inferredInspection.InspectionType == "Detailed" && inferredInspection.Answers.All(a => a.InspectionType == "Detailed"), "Saved question templates identify inspection grades even when session template is unset");
         Check(await loader.Load(project.Id, Principal(other), default) == null, "Unrelated Manager cannot obtain report data");
+        Check(await loader.LoadHaer(project.Id, Principal(other), default) == null, "Unrelated Manager cannot obtain HAER export data");
         Check(await loader.Load(project.Id, Principal(surveyor), default) != null && await loader.Load(project.Id, Principal(qc), default) != null && await loader.Load(project.Id, Principal(client), default) != null, "Assigned Surveyor, QC and Client retain scoped report access");
+        var haerController = new HaerController(db); haerController.ControllerContext = new ControllerContext {HttpContext = new DefaultHttpContext {User = Principal(manager)}};
+        var metadataResult = await haerController.UpdateMetadata(equipment.Id, new HaerMetadataRequest("Recorded transformer", "Deck North", "Recorded Manufacturer", "Model-1", "Serial-1", "Ex d", "IIB", null, "Zone 1", "-20 to +50 C", "IP66", "CERT-1", "NB-1", "Use per certificate", "CIRCUIT-1", null, "Manual", ["temperatureClass"], "Reconciled"), default);
+        Check(metadataResult is OkObjectResult && equipment.TemperatureClass is null && equipment.NotApplicableFieldsJson!.Contains("temperatureClass") && equipment.ReconciliationStatus == "Reconciled",
+            "Project-scoped HAER metadata editing records confirmed N/A and reconciliation status without guessing technical data");
+        var outOfScopeHaerController = new HaerController(db); outOfScopeHaerController.ControllerContext = new ControllerContext {HttpContext = new DefaultHttpContext {User = Principal(other)}};
+        Check(await outOfScopeHaerController.UpdateMetadata(equipment.Id, new HaerMetadataRequest(null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,[],"Unreviewed"), default) is NotFoundResult,
+            "HAER metadata update denies a manager outside the existing project scope");
         Check(!JsonSerializer.Serialize(report).Contains("StorageKey"), "Public report DTO never exposes physical storage keys");
         project.UidNumber = "226869"; project.DocumentNumber = "DYNAMIC/5001"; project.Revision = "A";
         project.Description = "INITIAL ISSUE"; project.ClientName = "PROJECT CLIENT COMPANY"; project.ClientLogoPath = "logo.png";

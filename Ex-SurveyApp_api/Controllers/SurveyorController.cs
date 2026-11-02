@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Ex_SurveyApp_api.Data;
+using Ex_SurveyApp_api.Attributes;
 using Ex_SurveyApp_api.Models;
 using Ex_SurveyApp_api.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -11,6 +12,7 @@ namespace Ex_SurveyApp_api.Controllers;
 
 [ApiController]
 [Authorize(Roles = nameof(UserRole.Surveyor))]
+[EndpointScopeInventory(EndpointScopeKind.TenantResource)]
 [Route("api/surveyor")]
 public class SurveyorController(
     SurveyDbContext db,
@@ -249,6 +251,12 @@ public class SurveyorController(
         };
 
         db.AreaEquipment.Add(equipment);
+        if(rfidTagUid is not null)
+        {
+            var registeredAt=DateTimeOffset.UtcNow;
+            db.EquipmentTagAssignments.Add(new EquipmentTagAssignment{EquipmentId=equipment.Id,ProjectId=projectId,Technology="HF_RFID",NormalizedIdentifier=rfidTagUid,AssignedByUserId=CurrentUserId,AssignedAt=registeredAt,AssignmentReason="Registered with the existing equipment record."});
+            db.EquipmentTagHistory.Add(new EquipmentTagHistory{EquipmentId=equipment.Id,ProjectId=projectId,Technology="HF_RFID",NormalizedIdentifier=rfidTagUid,ActionCode="Assigned",Reason="Registered with the existing equipment record.",ActorUserId=CurrentUserId,OccurredAt=registeredAt});
+        }
         var project = await TouchProject(projectId, cancellationToken);
         if (project.Status == ProjectStatus.Pending)
             project.Status = ProjectStatus.InProgress;
@@ -295,7 +303,9 @@ public class SurveyorController(
                 cancellationToken))
             return Conflict(new { error = "TagNumber already exists in this area." });
 
-        var rfidTagUid = NormalizeRfidTagUid(request.RfidTagUid);
+        var rfidTagUid = request.RfidTagUid is null?equipment.RfidTagUid:NormalizeRfidTagUid(request.RfidTagUid);
+        if(request.RfidTagUid is not null&&!string.Equals(rfidTagUid,equipment.RfidTagUid,StringComparison.OrdinalIgnoreCase))
+            return Conflict(new {error="RFID tag replacement or retirement must use the equipment tag management workflow so the change is confirmed and recorded."});
         if (rfidTagUid is not null && await db.AreaEquipment.AnyAsync(
                 x => x.Id != equipmentId && x.RfidTagUid == rfidTagUid, cancellationToken))
             return Conflict(new { error = "RFID tag UID is already assigned to another asset." });

@@ -50,8 +50,9 @@ internal static class ProjectUploadHttpChecks
             var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
             json.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: false));
             var swagger = await client.GetAsync("/swagger/v1/swagger.json");
-            Check(swagger.StatusCode == HttpStatusCode.OK, "Swagger JSON loads without duplicate-route conflict");
-            using var document = JsonDocument.Parse(await swagger.Content.ReadAsStringAsync());
+            var swaggerContent = await swagger.Content.ReadAsStringAsync();
+            Check(swagger.StatusCode == HttpStatusCode.OK, "Swagger JSON loads without duplicate-route conflict (HTTP " + (int)swagger.StatusCode + ")");
+            using var document = JsonDocument.Parse(swaggerContent);
             foreach (var (path, method) in new[] {("/api/projects", "post"), ("/api/projects/{id}", "put")})
             {
                 var bodies = document.RootElement.GetProperty("paths").GetProperty(path).GetProperty(method).GetProperty("requestBody").GetProperty("content");
@@ -117,16 +118,32 @@ internal static class ProjectUploadHttpChecks
             var removeLogo = await client.PutAsJsonAsync($"/api/projects/{metadataProject.Id}", metadata with {RemoveClientLogo = true}, json);
             Check(removeLogo.StatusCode == HttpStatusCode.OK && (await removeLogo.Content.ReadFromJsonAsync<ProjectResponse>(json))!.ClientLogoPath is null && (await client.GetAsync(metadataProject.ClientLogoPath)).StatusCode == HttpStatusCode.NotFound, "Explicit removal clears client logo and revokes download");
             Check(document.RootElement.GetProperty("paths").TryGetProperty("/api/reports/projects/{projectId}/pdf", out _), "Swagger documents report PDF endpoint");
+            Check(document.RootElement.GetProperty("paths").TryGetProperty("/api/reports/projects/{projectId}/haer", out _)
+                && document.RootElement.GetProperty("paths").TryGetProperty("/api/reports/projects/{projectId}/haer.csv", out _)
+                && document.RootElement.GetProperty("paths").TryGetProperty("/api/reports/projects/{projectId}/haer.pdf", out _)
+                && document.RootElement.GetProperty("paths").TryGetProperty("/api/reports/projects/{projectId}/haer/excel", out _), "Swagger documents scoped HAER JSON, CSV, PDF and Excel endpoints");
             Check((await client.GetAsync("/api/reports/projects")).StatusCode == HttpStatusCode.OK, "Manager can load scoped report project list");
             var reportResponse = await client.GetAsync($"/api/reports/projects/{id}");
             Check(reportResponse.StatusCode == HttpStatusCode.OK && !(await reportResponse.Content.ReadAsStringAsync()).Contains("storageKey", StringComparison.OrdinalIgnoreCase), "Report aggregate HTTP response loads without physical storage keys");
+            var haerResponse = await client.GetAsync($"/api/reports/projects/{id}/haer");
+            var haerJson = await haerResponse.Content.ReadAsStringAsync();
+            Check(haerResponse.StatusCode == HttpStatusCode.OK && haerJson.Contains("equipment", StringComparison.OrdinalIgnoreCase) && !haerJson.Contains("StorageKey", StringComparison.OrdinalIgnoreCase), "HAER JSON is scoped and exposes register data without physical storage keys");
+            var haerCsv = await client.GetAsync($"/api/reports/projects/{id}/haer.csv");
+            var haerCsvBody = await haerCsv.Content.ReadAsStringAsync();
+            Check(haerCsv.StatusCode == HttpStatusCode.OK && haerCsv.Content.Headers.ContentType?.MediaType == "text/csv" && haerCsvBody.Contains("Equipment ID", StringComparison.Ordinal), "HAER CSV export includes register columns and CSV MIME type");
+            var haerPdfResponse = await client.GetAsync($"/api/reports/projects/{id}/haer.pdf");
+            var haerPdfBytes = await haerPdfResponse.Content.ReadAsByteArrayAsync();
+            Check(haerPdfResponse.StatusCode == HttpStatusCode.OK && haerPdfResponse.Content.Headers.ContentType?.MediaType == "application/pdf" && haerPdfBytes.AsSpan(0, Math.Min(5, haerPdfBytes.Length)).SequenceEqual("%PDF-"u8), $"HAER PDF HTTP export generates a valid PDF (status {haerPdfResponse.StatusCode}, type {haerPdfResponse.Content.Headers.ContentType?.MediaType}, size {haerPdfBytes.Length})");
+            var haerExcelResponse = await client.GetAsync($"/api/reports/projects/{id}/haer/excel");
+            var haerExcelBody = await haerExcelResponse.Content.ReadAsStringAsync();
+            Check(haerExcelResponse.StatusCode == HttpStatusCode.OK && haerExcelResponse.Content.Headers.ContentType?.MediaType == "application/vnd.ms-excel" && haerExcelBody.Contains("urn:schemas-microsoft-com:office:spreadsheet", StringComparison.Ordinal), "HAER Excel-compatible HTTP export returns a readable workbook");
             var reportPdf = await client.GetAsync($"/api/reports/projects/{id}/pdf");
             var pdfBytes = await reportPdf.Content.ReadAsByteArrayAsync();
             Check(reportPdf.StatusCode == HttpStatusCode.OK && reportPdf.Content.Headers.ContentType?.MediaType == "application/pdf" && pdfBytes.AsSpan(0, 5).SequenceEqual("%PDF-"u8), "Report PDF HTTP endpoint generates an empty project safely");
             client.DefaultRequestHeaders.Remove("X-Test-Role");
             Check((await client.GetAsync($"/api/reports/projects/{id}/pdf")).StatusCode == HttpStatusCode.Unauthorized, "Report PDF requires authentication");
             client.DefaultRequestHeaders.Add("X-Test-Role", "Qc");
-            Check((await client.GetAsync($"/api/reports/projects/{id}")).StatusCode == HttpStatusCode.NotFound && (await client.GetAsync($"/api/reports/projects/{id}/pdf")).StatusCode == HttpStatusCode.NotFound, "Unassigned QC cannot access report data or PDF");
+            Check((await client.GetAsync($"/api/reports/projects/{id}")).StatusCode == HttpStatusCode.NotFound && (await client.GetAsync($"/api/reports/projects/{id}/pdf")).StatusCode == HttpStatusCode.NotFound && (await client.GetAsync($"/api/reports/projects/{id}/haer")).StatusCode == HttpStatusCode.NotFound && (await client.GetAsync($"/api/reports/projects/{id}/haer.csv")).StatusCode == HttpStatusCode.NotFound && (await client.GetAsync($"/api/reports/projects/{id}/haer.pdf")).StatusCode == HttpStatusCode.NotFound && (await client.GetAsync($"/api/reports/projects/{id}/haer/excel")).StatusCode == HttpStatusCode.NotFound, "Unassigned QC cannot access report data, PDF or HAER exports");
             client.DefaultRequestHeaders.Remove("X-Test-Role");
             client.DefaultRequestHeaders.Add("X-Test-Role", "Manager");
             var noClient = data with {JobNo = "optional-client", AssignedClientId = null};

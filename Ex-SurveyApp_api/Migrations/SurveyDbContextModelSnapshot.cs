@@ -17,10 +17,180 @@ namespace Ex_SurveyApp_api.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "8.0.0")
+                .HasAnnotation("ProductVersion", "10.0.13")
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.ActivityEvidence", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("AddedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("AddedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("AreaEquipmentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Caption")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<Guid?>("CheckpointResponseRevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("CorrectiveActionEventId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("InspectionActivityId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("IntegrityHash")
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<Guid?>("LegacyEquipmentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Role")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("SurveyFileId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AddedByUserId");
+
+                    b.HasIndex("AreaEquipmentId");
+
+                    b.HasIndex("CheckpointResponseRevisionId");
+
+                    b.HasIndex("CorrectiveActionEventId");
+
+                    b.HasIndex("LegacyEquipmentId");
+
+                    b.HasIndex("SurveyFileId");
+
+                    b.HasIndex("InspectionActivityId", "AddedAt");
+
+                    b.ToTable("ActivityEvidence", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.ActivityFinding", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("CheckpointResponseRevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("DueAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("FaultCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid>("InspectionActivityId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("LegacyFindingId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Observation")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<string>("ProposedAction")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTimeOffset>("ReportedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetimeoffset")
+                        .HasDefaultValueSql("TODATETIMEOFFSET(SYSUTCDATETIME(), '+00:00')");
+
+                    b.Property<Guid?>("ReportedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("RequiredMaterialsOrSupport")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<string>("ResponsibleParty")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<Guid?>("ResponsibleUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("SeverityCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("StatusCode")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CheckpointResponseRevisionId");
+
+                    b.HasIndex("InspectionActivityId");
+
+                    b.HasIndex("LegacyFindingId")
+                        .IsUnique()
+                        .HasFilter("[LegacyFindingId] IS NOT NULL");
+
+                    b.HasIndex("ReportedByUserId");
+
+                    b.HasIndex("ResponsibleUserId");
+
+                    b.ToTable("ActivityFindings", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.ActivityReviewEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ActorUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Comments")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTimeOffset>("DecidedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("Decision")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("InspectionActivityId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorUserId");
+
+                    b.HasIndex("InspectionActivityId", "DecidedAt");
+
+                    b.ToTable("ActivityReviewEvents", (string)null);
+                });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.Area", b =>
                 {
@@ -51,6 +221,10 @@ namespace Ex_SurveyApp_api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("AmbientTemperatureRange")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
                     b.Property<Guid>("AreaId")
                         .HasColumnType("uniqueidentifier");
 
@@ -68,9 +242,29 @@ namespace Ex_SurveyApp_api.Migrations
                     b.Property<Guid>("CreatedByUserId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
                     b.Property<string>("EquipmentCode")
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("ExProtectionType")
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<string>("GasGroup")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("HazardousAreaZone")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("IpRating")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
 
                     b.Property<string>("Location")
                         .HasMaxLength(300)
@@ -80,12 +274,35 @@ namespace Ex_SurveyApp_api.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<string>("Model")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("NotApplicableFieldsJson")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<string>("NotifiedBody")
+                        .HasMaxLength(250)
+                        .HasColumnType("nvarchar(250)");
+
                     b.Property<Guid>("ProjectId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("ProtectionDetails")
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("ReconciliationStatus")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)")
+                        .HasDefaultValue("Unreviewed");
+
+                    b.Property<string>("RfidIdentificationMethod")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
 
                     b.Property<string>("RfidTagUid")
                         .HasMaxLength(100)
@@ -94,8 +311,20 @@ namespace Ex_SurveyApp_api.Migrations
                     b.Property<int>("SequenceNo")
                         .HasColumnType("int");
 
+                    b.Property<string>("SerialNumber")
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<string>("SpecialConditionsOfUse")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
                     b.Property<string>("TagNumber")
                         .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("TemperatureClass")
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
@@ -121,15 +350,15 @@ namespace Ex_SurveyApp_api.Migrations
 
                     b.HasIndex("ProjectId");
 
+                    b.HasIndex("RfidTagUid")
+                        .IsUnique()
+                        .HasFilter("[RfidTagUid] IS NOT NULL");
+
                     b.HasIndex("AreaId", "SequenceNo")
                         .IsUnique();
 
                     b.HasIndex("AreaId", "TagNumber")
                         .IsUnique();
-
-                    b.HasIndex("RfidTagUid")
-                        .IsUnique()
-                        .HasFilter("[RfidTagUid] IS NOT NULL");
 
                     b.ToTable("AreaEquipment");
                 });
@@ -182,17 +411,125 @@ namespace Ex_SurveyApp_api.Migrations
                     b.ToTable("AuditLogs");
                 });
 
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.CampaignAnnualList", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int?>("ActualCloseCount")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("ActualDetailedCount")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("CampaignId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("EquipmentCount")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("PlannedCloseCount")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("PlannedDetailedCount")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Revision")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Year")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CampaignId", "Year")
+                        .IsUnique();
+
+                    b.ToTable("CampaignAnnualLists", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.CampaignEquipment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AnnualListId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AreaEquipmentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("CampaignId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("EquipmentTypeSnapshot")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("RiskCode")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<decimal?>("RiskScore")
+                        .HasPrecision(12, 4)
+                        .HasColumnType("decimal(12,4)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AnnualListId");
+
+                    b.HasIndex("AreaEquipmentId");
+
+                    b.HasIndex("CampaignId", "AreaEquipmentId")
+                        .IsUnique();
+
+                    b.ToTable("CampaignEquipment", (string)null);
+                });
+
             modelBuilder.Entity("Ex_SurveyApp_api.Models.ChecklistQuestion", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("ApplicableProtectionTypes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
                     b.Property<Guid>("ChecklistTemplateId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<bool>("IsRequired")
                         .HasColumnType("bit");
+
+                    b.Property<decimal?>("MaximumReading")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<string>("MeasurementUnit")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<decimal?>("MinimumReading")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<bool>("NumericReadingEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("NumericReadingRequired")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("RequireRemarkOnFail")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("ResponseScaleCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("SectionCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
 
                     b.Property<int>("SortOrder")
                         .HasColumnType("int");
@@ -214,22 +551,306 @@ namespace Ex_SurveyApp_api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("ApplicableProtectionTypes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<DateTimeOffset?>("ApprovedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("ApprovedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ControlledSourceReference")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("DraftRevision")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(1);
+
+                    b.Property<Guid?>("FamilyId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<int>("InspectionType")
                         .HasColumnType("int");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
 
+                    b.Property<int>("LifecycleStatus")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(0);
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("StandardEdition")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("StandardReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateTimeOffset?>("SubmittedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("SubmittedByUserId")
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<int>("Version")
                         .HasColumnType("int");
 
                     b.HasKey("Id");
 
+                    b.HasIndex("ApprovedByUserId");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("SubmittedByUserId");
+
+                    b.HasIndex("FamilyId", "Version")
+                        .IsUnique()
+                        .HasFilter("[FamilyId] IS NOT NULL");
+
                     b.ToTable("ChecklistTemplates");
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.ChecklistVersionSnapshot", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ControlledSourceReference")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<int>("InspectionType")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ProtectionTypeSnapshot")
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<DateTimeOffset>("PublishedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("PublishedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("SnapshotHash")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<Guid>("SourceChecklistTemplateId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("StandardEdition")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("StandardReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int>("VersionNumber")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PublishedByUserId");
+
+                    b.HasIndex("SourceChecklistTemplateId", "VersionNumber", "ProtectionTypeSnapshot")
+                        .IsUnique()
+                        .HasFilter("[ProtectionTypeSnapshot] IS NOT NULL");
+
+                    b.ToTable("ChecklistVersionSnapshots", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.CheckpointDefinitionSnapshot", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ApplicabilityCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid>("ChecklistVersionSnapshotId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsRequired")
+                        .HasColumnType("bit");
+
+                    b.Property<decimal?>("MaximumReading")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<string>("MeasurementUnit")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<decimal?>("MinimumReading")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<bool>("NumericReadingEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("NumericReadingRequired")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("QuestionCode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("QuestionText")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<int>("QuestionVersion")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("RequireRemarkOnFail")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("ResponseScaleCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("SectionCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChecklistVersionSnapshotId", "QuestionCode", "QuestionVersion")
+                        .IsUnique();
+
+                    b.ToTable("CheckpointDefinitionSnapshots", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.CheckpointResponseRevision", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ActivityRevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ApplicabilityResultCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid>("CheckpointDefinitionSnapshotId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("MeasurementUnitSnapshot")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<decimal?>("NumericValue")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("decimal(18,4)");
+
+                    b.Property<string>("Observation")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTimeOffset>("RecordedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("RecordedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ResponseCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("ReviewComment")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTimeOffset?>("ReviewedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("ReviewedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("RevisionNumber")
+                        .HasColumnType("int");
+
+                    b.Property<string>("TechnicalConditionCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int>("WorkflowState")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CheckpointDefinitionSnapshotId");
+
+                    b.HasIndex("RecordedByUserId");
+
+                    b.HasIndex("ReviewedByUserId");
+
+                    b.HasIndex("ActivityRevisionId", "CheckpointDefinitionSnapshotId", "RevisionNumber")
+                        .IsUnique();
+
+                    b.ToTable("CheckpointResponseRevisions", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.CheckpointReviewEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("CheckpointResponseRevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Comments")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<int>("Decision")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("InspectionActivityId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("ReviewedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("ReviewerUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CheckpointResponseRevisionId");
+
+                    b.HasIndex("ReviewerUserId");
+
+                    b.HasIndex("InspectionActivityId", "ReviewedAt");
+
+                    b.ToTable("CheckpointReviewEvents", (string)null);
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.Client", b =>
@@ -471,6 +1092,172 @@ namespace Ex_SurveyApp_api.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.Contract", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ContractKey")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("StatusCode")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "ContractKey")
+                        .IsUnique();
+
+                    b.ToTable("TenantContracts", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.CorrectiveAction", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ActionReference")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid>("ActivityFindingId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("AriesVerifiedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("AriesVerifierUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("ClientDecisionAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("ClientDecisionUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("ExternalWorkOrderReference")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<bool>("IsOutstanding")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true);
+
+                    b.Property<string>("LastDecisionComment")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<string>("ProposedAction")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTimeOffset?>("RectificationAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("RectificationDescription")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<string>("ResponsibleParty")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<Guid?>("ResponsibleUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<string>("SupplementaryInformation")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActionReference")
+                        .IsUnique();
+
+                    b.HasIndex("AriesVerifierUserId");
+
+                    b.HasIndex("ClientDecisionUserId");
+
+                    b.HasIndex("ResponsibleUserId");
+
+                    b.HasIndex("ActivityFindingId", "CreatedAt");
+
+                    b.ToTable("CorrectiveActions", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.CorrectiveActionEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ActorUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Comment")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<Guid>("CorrectiveActionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("RectificationAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("RectificationDescription")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<string>("ResponsibleParty")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("ResultingStatus")
+                        .HasColumnType("int");
+
+                    b.Property<string>("WorkOrderReference")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorUserId");
+
+                    b.HasIndex("CorrectiveActionId", "OccurredAt");
+
+                    b.ToTable("CorrectiveActionEvents", (string)null);
+                });
+
             modelBuilder.Entity("Ex_SurveyApp_api.Models.Equipment", b =>
                 {
                     b.Property<Guid>("Id")
@@ -510,6 +1297,370 @@ namespace Ex_SurveyApp_api.Migrations
                     b.ToTable("Equipment");
                 });
 
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.EquipmentDocumentRequirementPolicy", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("ApprovedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("ApprovedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("CategoryCode")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("EquipmentType")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<bool>("IsApproved")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsRequired")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid?>("ProjectId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("WorkPackageId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WorkPackageId");
+
+                    b.HasIndex("ProjectId", "EquipmentType", "WorkPackageId", "CategoryCode", "IsApproved");
+
+                    b.ToTable("EquipmentDocumentRequirementPolicies", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.EquipmentDocumentUseEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ActivityId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("DocumentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("DocumentRevision")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("EquipmentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("OpenedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset>("RecordedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("WorkPackageId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DocumentId");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("ActivityId", "DocumentId", "DocumentRevision", "UserId", "OpenedAt");
+
+                    b.ToTable("EquipmentDocumentUseEvents", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.EquipmentReferenceDocument", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ApprovalComment")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<DateTimeOffset?>("ApprovedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("ApprovedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("ArchivedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("AreaId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("CategoryCode")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("DocumentNumber")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
+                    b.Property<Guid?>("EquipmentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("ExpiryDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("IssueDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("IssuingOrganization")
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<string>("OriginalFileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Revision")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("StoragePath")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<DateTimeOffset?>("SubmittedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("SubmittedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("SupersedesDocumentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<DateTimeOffset>("UploadedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("UploadedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApprovedByUserId");
+
+                    b.HasIndex("AreaId");
+
+                    b.HasIndex("EquipmentId");
+
+                    b.HasIndex("SupersedesDocumentId");
+
+                    b.HasIndex("UploadedByUserId");
+
+                    b.HasIndex("ProjectId", "EquipmentId", "CategoryCode", "Status");
+
+                    b.ToTable("EquipmentReferenceDocuments", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.EquipmentReferenceDocumentEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ActorUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Comments")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<Guid>("DocumentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("EventCode")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorUserId");
+
+                    b.HasIndex("DocumentId", "OccurredAt");
+
+                    b.ToTable("EquipmentReferenceDocumentEvents", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.EquipmentTagAssignment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("AssignedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("AssignedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("AssignmentReason")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<DateTimeOffset?>("DeactivatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("DeactivatedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("DeactivationReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<Guid>("EquipmentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("NormalizedIdentifier")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Technology")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AssignedByUserId");
+
+                    b.HasIndex("DeactivatedByUserId");
+
+                    b.HasIndex("NormalizedIdentifier")
+                        .IsUnique()
+                        .HasFilter("[IsActive] = 1");
+
+                    b.HasIndex("ProjectId");
+
+                    b.HasIndex("EquipmentId", "Technology")
+                        .IsUnique()
+                        .HasFilter("[IsActive] = 1");
+
+                    b.ToTable("EquipmentTagAssignments");
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.EquipmentTagHistory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ActionCode")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<Guid>("ActorUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("AssignmentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("EquipmentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("NormalizedIdentifier")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("Technology")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorUserId");
+
+                    b.HasIndex("AssignmentId");
+
+                    b.HasIndex("ProjectId");
+
+                    b.HasIndex("EquipmentId", "OccurredAt");
+
+                    b.ToTable("EquipmentTagHistory");
+                });
+
             modelBuilder.Entity("Ex_SurveyApp_api.Models.Finding", b =>
                 {
                     b.Property<Guid>("Id")
@@ -537,6 +1688,566 @@ namespace Ex_SurveyApp_api.Migrations
                     b.HasIndex("SurveySessionId");
 
                     b.ToTable("Findings");
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.GeneratedReportArtifact", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ApprovalState")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<DateTimeOffset>("GeneratedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("GeneratedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("LinkedEntityId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ReportNumber")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("nvarchar(160)");
+
+                    b.Property<string>("ReportType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<int>("Revision")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("StorageKey")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GeneratedByUserId");
+
+                    b.HasIndex("ProjectId", "GeneratedAt");
+
+                    b.HasIndex("ProjectId", "ReportType", "LinkedEntityId", "Revision")
+                        .IsUnique();
+
+                    b.ToTable("GeneratedReportArtifacts", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.InspectionActivity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ChecklistVersionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("Grade")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("InspectionTaskId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("InspectorNameSnapshot")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<Guid>("InspectorUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("LegacySurveySessionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("ReviewStatus")
+                        .HasColumnType("int");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<DateTimeOffset>("StartedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChecklistVersionId");
+
+                    b.HasIndex("InspectionTaskId");
+
+                    b.HasIndex("InspectorUserId");
+
+                    b.HasIndex("LegacySurveySessionId")
+                        .IsUnique()
+                        .HasFilter("[LegacySurveySessionId] IS NOT NULL");
+
+                    b.ToTable("InspectionActivities", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.InspectionActivityDocumentUsage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("DocumentIdentity")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("DocumentRevision")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid>("InspectionActivityId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("InspectionTaskId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("OpenedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset>("RecordedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<Guid>("ScopeId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InspectionTaskId");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("InspectionActivityId", "DocumentIdentity", "DocumentRevision")
+                        .IsUnique();
+
+                    b.ToTable("InspectionActivityDocumentUsages", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.InspectionActivityRevision", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ChangeReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("ContentHash")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("InspectionActivityId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("RevisionNumber")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("InspectionActivityId", "RevisionNumber")
+                        .IsUnique();
+
+                    b.ToTable("InspectionActivityRevisions", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.InspectionCampaign", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("AllocationApproved")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTimeOffset?>("AllocationApprovedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("AllocationApprovedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal?>("ClosePercent")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("decimal(5,2)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal?>("DetailedPercent")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("decimal(5,2)");
+
+                    b.Property<DateOnly>("EndsOn")
+                        .HasColumnType("date");
+
+                    b.Property<Guid?>("InspectionLeadUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal?>("MinimumDetailedCreditPercent")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("decimal(5,2)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Reference")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int>("Revision")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("RoundingRule")
+                        .HasColumnType("int");
+
+                    b.Property<DateOnly>("StartsOn")
+                        .HasColumnType("date");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InspectionLeadUserId");
+
+                    b.HasIndex("ProjectId", "Reference")
+                        .IsUnique();
+
+                    b.ToTable("InspectionCampaigns", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.InspectionPlan", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("EndsAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<Guid?>("ProjectId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("SourceReference")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTimeOffset?>("StartsAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProjectId");
+
+                    b.ToTable("InspectionPlans", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.InspectionRecurrence", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AnnualListId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("CampaignId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("EveryMonths")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Grade")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset?>("LastGeneratedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateOnly>("NextOccurrenceOn")
+                        .HasColumnType("date");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AnnualListId");
+
+                    b.HasIndex("CampaignId", "AnnualListId", "Grade", "NextOccurrenceOn");
+
+                    b.ToTable("InspectionRecurrences", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.InspectionTask", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("AreaEquipmentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("AssignedUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("CarryForwardReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<Guid?>("ChecklistVersionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("DueAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("InspectionPlanId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsInaccessible")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("IsolationPrerequisites")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("int");
+
+                    b.Property<Guid?>("LegacyEquipmentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int?>("PlannedGrade")
+                        .HasColumnType("int");
+
+                    b.Property<string>("PriorityCode")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("RequiredPermits")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<string>("Rotation")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int?>("RouteOrder")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ScheduleReference")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTimeOffset?>("ScheduledAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("StatusCode")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<Guid?>("WorkPackageId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("WorkPackageReference")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AreaEquipmentId");
+
+                    b.HasIndex("AssignedUserId");
+
+                    b.HasIndex("ChecklistVersionId");
+
+                    b.HasIndex("LegacyEquipmentId");
+
+                    b.HasIndex("InspectionPlanId", "ScheduledAt");
+
+                    b.HasIndex("WorkPackageId", "RouteOrder");
+
+                    b.ToTable("InspectionTasks", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_InspectionTasks_OneEquipment", "([AreaEquipmentId] IS NOT NULL AND [LegacyEquipmentId] IS NULL) OR ([AreaEquipmentId] IS NULL AND [LegacyEquipmentId] IS NOT NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.InspectionTaskAssignmentEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ActorUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("ChangedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("InspectionTaskId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("NewUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("PreviousUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InspectionTaskId", "ChangedAt");
+
+                    b.ToTable("InspectionTaskAssignmentEvents", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.InspectionWorkPackage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Area")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<Guid>("CampaignId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("PlannedEnd")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("PlannedStart")
+                        .HasColumnType("date");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Reference")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Rotation")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Site")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProjectId");
+
+                    b.HasIndex("CampaignId", "Reference")
+                        .IsUnique();
+
+                    b.ToTable("InspectionWorkPackages", (string)null);
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.Job", b =>
@@ -601,6 +2312,192 @@ namespace Ex_SurveyApp_api.Migrations
                         .IsUnique();
 
                     b.ToTable("JobAssignments");
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.LegacyEntityMap", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("EvidenceReference")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("SourceEntityType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("SourceRecordKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("SourceSystem")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(24)
+                        .HasColumnType("nvarchar(24)")
+                        .HasDefaultValue("Proposed");
+
+                    b.Property<string>("TargetEntityType")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid?>("TargetId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SourceSystem", "SourceEntityType", "SourceRecordKey")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "TargetEntityType", "TargetId");
+
+                    b.ToTable("LegacyEntityMaps", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_LegacyEntityMaps_VerifiedTarget", "[Status] <> N'Verified' OR ([TargetEntityType] IS NOT NULL AND [TargetId] IS NOT NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.OfflinePhotoSyncReceipt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("AcceptedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("ActivityId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("CheckpointResponseRevisionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ContentHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<Guid>("EvidenceId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActivityId");
+
+                    b.HasIndex("CheckpointResponseRevisionId");
+
+                    b.HasIndex("EvidenceId");
+
+                    b.HasIndex("UserId", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.ToTable("OfflinePhotoSyncReceipts", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.OfflineSyncReceipt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("AcceptedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("ClientActivityId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("PayloadHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("ResponseMapJson")
+                        .IsRequired()
+                        .HasMaxLength(200000)
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid>("ServerActivityId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ServerActivityId");
+
+                    b.HasIndex("UserId", "ClientActivityId")
+                        .IsUnique();
+
+                    b.HasIndex("UserId", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.ToTable("OfflineSyncReceipts", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.PlanningApprovalEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ActorUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("CampaignId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Comments")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<string>("Decision")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("Revision")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CampaignId", "Revision", "OccurredAt");
+
+                    b.ToTable("PlanningApprovalEvents", (string)null);
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.Project", b =>
@@ -815,6 +2712,12 @@ namespace Ex_SurveyApp_api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<int>("ConcurrencyVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(0);
+
                     b.Property<string>("DisplayName")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -834,6 +2737,9 @@ namespace Ex_SurveyApp_api.Migrations
                     b.Property<DateTimeOffset>("LastSentAt")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<DateTimeOffset?>("LockedUntil")
+                        .HasColumnType("datetimeoffset");
+
                     b.Property<string>("Otp")
                         .IsRequired()
                         .HasMaxLength(4)
@@ -842,6 +2748,11 @@ namespace Ex_SurveyApp_api.Migrations
 
                     b.Property<int>("RequestedRole")
                         .HasColumnType("int");
+
+                    b.Property<int>("VerificationAttempts")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(0);
 
                     b.Property<DateTimeOffset?>("VerifiedAt")
                         .HasColumnType("datetimeoffset");
@@ -927,6 +2838,111 @@ namespace Ex_SurveyApp_api.Migrations
                         .IsUnique();
 
                     b.ToTable("ReportRevisions");
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.SamplingApproval", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AnnualListId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("ApprovedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("ApprovedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("CampaignId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("CampaignRevision")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsFrozen")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Justification")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("Method")
+                        .HasColumnType("int");
+
+                    b.Property<string>("OverridesJson")
+                        .HasMaxLength(2000000)
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int?>("RandomSeed")
+                        .HasColumnType("int");
+
+                    b.Property<int>("RuleVersion")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("SelectedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("SelectedEquipmentIdsJson")
+                        .IsRequired()
+                        .HasMaxLength(2000000)
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AnnualListId");
+
+                    b.HasIndex("CampaignId", "AnnualListId", "CampaignRevision");
+
+                    b.ToTable("SamplingApprovals", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.Site", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Location")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("SiteKey")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
+                    b.Property<string>("SiteType")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)")
+                        .HasDefaultValue("Provisioning");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("TenantProjectBindingId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("TenantId", "Id");
+
+                    b.HasIndex("TenantId", "TenantProjectBindingId");
+
+                    b.ToTable("TenantSites", (string)null);
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.SurveyAnswer", b =>
@@ -1104,6 +3120,216 @@ namespace Ex_SurveyApp_api.Migrations
                     b.ToTable("SyncBatches");
                 });
 
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.Tenant", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)")
+                        .HasDefaultValue("Provisioning");
+
+                    b.Property<string>("TenantKey")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantKey")
+                        .IsUnique();
+
+                    b.ToTable("Tenants", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.TenantBackfillException", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<string>("EvidenceReference")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("ExceptionCode")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
+
+                    b.Property<Guid>("MigrationBatchId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("ResolvedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("SourceEntityType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("SourceRecordKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("SourceSystem")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(24)
+                        .HasColumnType("nvarchar(24)")
+                        .HasDefaultValue("Open");
+
+                    b.Property<Guid?>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "Status", "CreatedAt");
+
+                    b.HasIndex("MigrationBatchId", "SourceSystem", "SourceEntityType", "SourceRecordKey", "ExceptionCode")
+                        .IsUnique();
+
+                    b.ToTable("TenantBackfillExceptions", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.TenantMembership", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("ActivatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("InvitedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)")
+                        .HasDefaultValue("Invited");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InvitedByUserId");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("TenantId", "UserId")
+                        .IsUnique();
+
+                    b.ToTable("TenantMemberships", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.TenantProjectBinding", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ContractId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProjectId");
+
+                    b.HasIndex("TenantId", "ContractId", "ProjectId")
+                        .IsUnique();
+
+                    b.ToTable("TenantProjectBindings", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.TenantRoleGrant", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("RoleCode")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
+
+                    b.Property<Guid?>("ScopeId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ScopeType")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("nvarchar(24)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("TenantMembershipId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "TenantMembershipId", "RoleCode", "ScopeType")
+                        .IsUnique()
+                        .HasFilter("[ScopeType] = N'Tenant'");
+
+                    b.HasIndex("TenantId", "TenantMembershipId", "RoleCode", "ScopeType", "ScopeId")
+                        .IsUnique()
+                        .HasFilter("[ScopeId] IS NOT NULL");
+
+                    b.ToTable("TenantRoleGrants", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_TenantRoleGrants_ScopeShape", "([ScopeType] = N'Tenant' AND [ScopeId] IS NULL) OR ([ScopeType] <> N'Tenant' AND [ScopeId] IS NOT NULL)");
+                        });
+                });
+
             modelBuilder.Entity("Ex_SurveyApp_api.Models.User", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1152,6 +3378,91 @@ namespace Ex_SurveyApp_api.Migrations
                     b.ToTable("Users");
                 });
 
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.ActivityEvidence", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("AddedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.AreaEquipment", null)
+                        .WithMany()
+                        .HasForeignKey("AreaEquipmentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ex_SurveyApp_api.Models.CheckpointResponseRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CheckpointResponseRevisionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ex_SurveyApp_api.Models.CorrectiveActionEvent", null)
+                        .WithMany()
+                        .HasForeignKey("CorrectiveActionEventId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ex_SurveyApp_api.Models.InspectionActivity", null)
+                        .WithMany()
+                        .HasForeignKey("InspectionActivityId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ex_SurveyApp_api.Models.Equipment", null)
+                        .WithMany()
+                        .HasForeignKey("LegacyEquipmentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ex_SurveyApp_api.Models.SurveyFile", null)
+                        .WithMany()
+                        .HasForeignKey("SurveyFileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.ActivityFinding", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.CheckpointResponseRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CheckpointResponseRevisionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.InspectionActivity", null)
+                        .WithMany()
+                        .HasForeignKey("InspectionActivityId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.Finding", null)
+                        .WithMany()
+                        .HasForeignKey("LegacyFindingId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("ReportedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("ResponsibleUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.ActivityReviewEvent", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("ActorUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.InspectionActivity", null)
+                        .WithMany()
+                        .HasForeignKey("InspectionActivityId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Ex_SurveyApp_api.Models.Area", b =>
                 {
                     b.HasOne("Ex_SurveyApp_api.Models.Job", null)
@@ -1190,12 +3501,181 @@ namespace Ex_SurveyApp_api.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.CampaignAnnualList", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.InspectionCampaign", null)
+                        .WithMany()
+                        .HasForeignKey("CampaignId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.CampaignEquipment", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.CampaignAnnualList", null)
+                        .WithMany()
+                        .HasForeignKey("AnnualListId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.AreaEquipment", null)
+                        .WithMany()
+                        .HasForeignKey("AreaEquipmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.InspectionCampaign", null)
+                        .WithMany()
+                        .HasForeignKey("CampaignId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Ex_SurveyApp_api.Models.ChecklistQuestion", b =>
                 {
                     b.HasOne("Ex_SurveyApp_api.Models.ChecklistTemplate", null)
                         .WithMany()
                         .HasForeignKey("ChecklistTemplateId")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.ChecklistTemplate", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("ApprovedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("SubmittedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.ChecklistVersionSnapshot", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("PublishedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.ChecklistTemplate", null)
+                        .WithMany()
+                        .HasForeignKey("SourceChecklistTemplateId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.CheckpointDefinitionSnapshot", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.ChecklistVersionSnapshot", null)
+                        .WithMany()
+                        .HasForeignKey("ChecklistVersionSnapshotId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.CheckpointResponseRevision", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.InspectionActivityRevision", null)
+                        .WithMany()
+                        .HasForeignKey("ActivityRevisionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.CheckpointDefinitionSnapshot", null)
+                        .WithMany()
+                        .HasForeignKey("CheckpointDefinitionSnapshotId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("RecordedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("ReviewedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.CheckpointReviewEvent", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.CheckpointResponseRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CheckpointResponseRevisionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.InspectionActivity", null)
+                        .WithMany()
+                        .HasForeignKey("InspectionActivityId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("ReviewerUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.Contract", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.Tenant", "Tenant")
+                        .WithMany("Contracts")
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Tenant");
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.CorrectiveAction", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.ActivityFinding", null)
+                        .WithMany()
+                        .HasForeignKey("ActivityFindingId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("AriesVerifierUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("ClientDecisionUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("ResponsibleUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.CorrectiveActionEvent", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("ActorUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.CorrectiveAction", null)
+                        .WithMany()
+                        .HasForeignKey("CorrectiveActionId")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 
@@ -1208,12 +3688,311 @@ namespace Ex_SurveyApp_api.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.EquipmentDocumentRequirementPolicy", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.Project", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ex_SurveyApp_api.Models.InspectionWorkPackage", null)
+                        .WithMany()
+                        .HasForeignKey("WorkPackageId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.EquipmentDocumentUseEvent", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.InspectionActivity", null)
+                        .WithMany()
+                        .HasForeignKey("ActivityId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.EquipmentReferenceDocument", null)
+                        .WithMany()
+                        .HasForeignKey("DocumentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.EquipmentReferenceDocument", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("ApprovedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ex_SurveyApp_api.Models.ProjectArea", null)
+                        .WithMany()
+                        .HasForeignKey("AreaId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ex_SurveyApp_api.Models.AreaEquipment", null)
+                        .WithMany()
+                        .HasForeignKey("EquipmentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ex_SurveyApp_api.Models.Project", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.EquipmentReferenceDocument", null)
+                        .WithMany()
+                        .HasForeignKey("SupersedesDocumentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("UploadedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.EquipmentReferenceDocumentEvent", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("ActorUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.EquipmentReferenceDocument", null)
+                        .WithMany()
+                        .HasForeignKey("DocumentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.EquipmentTagAssignment", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("AssignedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("DeactivatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ex_SurveyApp_api.Models.AreaEquipment", null)
+                        .WithMany()
+                        .HasForeignKey("EquipmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.Project", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.EquipmentTagHistory", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("ActorUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.AreaEquipment", null)
+                        .WithMany()
+                        .HasForeignKey("EquipmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.Project", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Ex_SurveyApp_api.Models.Finding", b =>
                 {
                     b.HasOne("Ex_SurveyApp_api.Models.SurveySession", null)
                         .WithMany()
                         .HasForeignKey("SurveySessionId")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.GeneratedReportArtifact", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("GeneratedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.InspectionActivity", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.ChecklistVersionSnapshot", null)
+                        .WithMany()
+                        .HasForeignKey("ChecklistVersionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.InspectionTask", null)
+                        .WithMany()
+                        .HasForeignKey("InspectionTaskId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("InspectorUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.SurveySession", null)
+                        .WithMany()
+                        .HasForeignKey("LegacySurveySessionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.InspectionActivityDocumentUsage", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.InspectionActivity", null)
+                        .WithMany()
+                        .HasForeignKey("InspectionActivityId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.InspectionTask", null)
+                        .WithMany()
+                        .HasForeignKey("InspectionTaskId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.InspectionActivityRevision", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.InspectionActivity", "Activity")
+                        .WithMany("Revisions")
+                        .HasForeignKey("InspectionActivityId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Activity");
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.InspectionCampaign", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("InspectionLeadUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ex_SurveyApp_api.Models.Project", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.InspectionPlan", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.Project", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.InspectionRecurrence", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.CampaignAnnualList", null)
+                        .WithMany()
+                        .HasForeignKey("AnnualListId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.InspectionCampaign", null)
+                        .WithMany()
+                        .HasForeignKey("CampaignId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.InspectionTask", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.AreaEquipment", null)
+                        .WithMany()
+                        .HasForeignKey("AreaEquipmentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("AssignedUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ex_SurveyApp_api.Models.ChecklistVersionSnapshot", null)
+                        .WithMany()
+                        .HasForeignKey("ChecklistVersionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ex_SurveyApp_api.Models.InspectionPlan", null)
+                        .WithMany()
+                        .HasForeignKey("InspectionPlanId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.Equipment", null)
+                        .WithMany()
+                        .HasForeignKey("LegacyEquipmentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ex_SurveyApp_api.Models.InspectionWorkPackage", null)
+                        .WithMany()
+                        .HasForeignKey("WorkPackageId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.InspectionTaskAssignmentEvent", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.InspectionTask", null)
+                        .WithMany()
+                        .HasForeignKey("InspectionTaskId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.InspectionWorkPackage", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.InspectionCampaign", null)
+                        .WithMany()
+                        .HasForeignKey("CampaignId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.Project", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 
@@ -1237,6 +4016,64 @@ namespace Ex_SurveyApp_api.Migrations
                     b.HasOne("Ex_SurveyApp_api.Models.User", null)
                         .WithMany()
                         .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.LegacyEntityMap", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.OfflinePhotoSyncReceipt", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.InspectionActivity", null)
+                        .WithMany()
+                        .HasForeignKey("ActivityId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.CheckpointResponseRevision", null)
+                        .WithMany()
+                        .HasForeignKey("CheckpointResponseRevisionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ex_SurveyApp_api.Models.ActivityEvidence", null)
+                        .WithMany()
+                        .HasForeignKey("EvidenceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.OfflineSyncReceipt", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.InspectionActivity", null)
+                        .WithMany()
+                        .HasForeignKey("ServerActivityId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.PlanningApprovalEvent", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.InspectionCampaign", null)
+                        .WithMany()
+                        .HasForeignKey("CampaignId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
@@ -1344,6 +4181,37 @@ namespace Ex_SurveyApp_api.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.SamplingApproval", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.CampaignAnnualList", null)
+                        .WithMany()
+                        .HasForeignKey("AnnualListId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.InspectionCampaign", null)
+                        .WithMany()
+                        .HasForeignKey("CampaignId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.Site", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.TenantProjectBinding", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "TenantProjectBindingId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Ex_SurveyApp_api.Models.SurveyAnswer", b =>
                 {
                     b.HasOne("Ex_SurveyApp_api.Models.ChecklistQuestion", null)
@@ -1431,6 +4299,66 @@ namespace Ex_SurveyApp_api.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.TenantBackfillException", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.Tenant", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.TenantMembership", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("InvitedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ex_SurveyApp_api.Models.Tenant", "Tenant")
+                        .WithMany("Memberships")
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Tenant");
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.TenantProjectBinding", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.Project", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.Contract", "Contract")
+                        .WithMany("ProjectBindings")
+                        .HasForeignKey("TenantId", "ContractId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Contract");
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.TenantRoleGrant", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.TenantMembership", "Membership")
+                        .WithMany("RoleGrants")
+                        .HasForeignKey("TenantId", "TenantMembershipId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Membership");
+                });
+
             modelBuilder.Entity("Ex_SurveyApp_api.Models.User", b =>
                 {
                     b.HasOne("Ex_SurveyApp_api.Models.User", null)
@@ -1446,6 +4374,16 @@ namespace Ex_SurveyApp_api.Migrations
                     b.Navigation("Manager");
                 });
 
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.Contract", b =>
+                {
+                    b.Navigation("ProjectBindings");
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.InspectionActivity", b =>
+                {
+                    b.Navigation("Revisions");
+                });
+
             modelBuilder.Entity("Ex_SurveyApp_api.Models.Project", b =>
                 {
                     b.Navigation("Areas");
@@ -1458,6 +4396,18 @@ namespace Ex_SurveyApp_api.Migrations
                     b.Navigation("EquipmentPins");
 
                     b.Navigation("Photos");
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.Tenant", b =>
+                {
+                    b.Navigation("Contracts");
+
+                    b.Navigation("Memberships");
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.TenantMembership", b =>
+                {
+                    b.Navigation("RoleGrants");
                 });
 #pragma warning restore 612, 618
         }

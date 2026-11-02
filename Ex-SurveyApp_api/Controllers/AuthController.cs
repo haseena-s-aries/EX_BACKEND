@@ -4,15 +4,18 @@ using Ex_SurveyApp_api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
+using Ex_SurveyApp_api.Attributes;
 using System.Security.Cryptography;
 using System.Text;
 
 namespace Ex_SurveyApp_api.Controllers;
 
 [ApiController]
+[EndpointScopeInventory(EndpointScopeKind.IdentityLifecycle)]
 [Route("api/auth")]
 public class AuthController(
     SurveyDbContext db,
@@ -27,6 +30,7 @@ public class AuthController(
 
     [HttpPost("register/send-otp")]
     [AllowAnonymous]
+    [EnableRateLimiting("AnonymousAuth")]
     public async Task<IActionResult> SendRegistrationOtp(
         SendRegistrationOtpRequest request, CancellationToken cancellationToken)
     {
@@ -63,6 +67,7 @@ public class AuthController(
 
     [HttpPost("register/verify-otp")]
     [AllowAnonymous]
+    [EnableRateLimiting("AnonymousAuth")]
     public async Task<IActionResult> VerifyRegistrationOtp(
         VerifyRegistrationOtpRequest request, CancellationToken cancellationToken)
     {
@@ -73,18 +78,60 @@ public class AuthController(
 
         if (registration.ExpiresAt <= DateTimeOffset.UtcNow)
             return StatusCode(StatusCodes.Status410Gone, new { error = "OTP has expired. Request a new OTP." });
+        if (registration.IsVerified)
+            return Conflict(new { error = "OTP has already been verified." });
 
-        if (!OtpMatches(registration.Otp, request.Otp))
+        var attempt = OtpVerificationPolicy.RecordAttempt(
+            registration, OtpMatches(registration.Otp, request.Otp), DateTimeOffset.UtcNow);
+        if (attempt == OtpAttemptDisposition.Locked)
+        {
+            if (registration.LockedUntil == registration.ExpiresAt)
+            {
+                try
+                {
+                    await db.SaveChangesAsync(cancellationToken);
+                }
+                catch (DbUpdateConcurrencyException)
+                {
+                    return StatusCode(StatusCodes.Status429TooManyRequests,
+                        new { error = "Verification attempts are being limited. Request a new OTP when the current code expires." });
+                }
+            }
+            var retryAfter = Math.Max(1, (int)Math.Ceiling((registration.ExpiresAt - DateTimeOffset.UtcNow).TotalSeconds));
+            Response.Headers.RetryAfter = retryAfter.ToString();
+            return StatusCode(StatusCodes.Status429TooManyRequests,
+                new { error = "Too many invalid verification attempts. Request a new OTP after the current code expires." });
+        }
+        if (attempt == OtpAttemptDisposition.Invalid)
+        {
+            try
+            {
+                await db.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                return StatusCode(StatusCodes.Status429TooManyRequests,
+                    new { error = "Verification attempts are being limited. Try again shortly." });
+            }
             return BadRequest(new { error = "Invalid OTP." });
+        }
 
         registration.IsVerified = true;
         registration.VerifiedAt = DateTimeOffset.UtcNow;
-        await db.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Conflict(new { error = "OTP verification state changed. Start a new verification request." });
+        }
         return Ok(new { message = "OTP verified. You can now complete registration." });
     }
 
     [HttpPost("register/resend-otp")]
     [AllowAnonymous]
+    [EnableRateLimiting("AnonymousAuth")]
     public async Task<IActionResult> ResendRegistrationOtp(
         ResendRegistrationOtpRequest request, CancellationToken cancellationToken)
     {
@@ -106,6 +153,7 @@ public class AuthController(
 
     [HttpPost("register/complete")]
     [AllowAnonymous]
+    [EnableRateLimiting("AnonymousAuth")]
     public async Task<ActionResult<UserResponse>> CompleteRegistration(
         CompleteRegistrationRequest request, CancellationToken cancellationToken)
     {
@@ -151,6 +199,7 @@ public class AuthController(
 
     [HttpPost("login")]
     [AllowAnonymous]
+    [EnableRateLimiting("AnonymousAuth")]
     public async Task<ActionResult<AuthResponse>> Login(LoginRequest request, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Password))
@@ -421,12 +470,19 @@ public class AuthController(
         registration.LastSentAt = now;
         registration.IsVerified = false;
         registration.VerifiedAt = null;
+        OtpVerificationPolicy.Reset(registration);
 
         try
         {
             await db.SaveChangesAsync(cancellationToken);
             await emailService.SendRegistrationOtpAsync(registration.Email, registration.DisplayName,
                 registration.Otp, cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            Response.Headers.RetryAfter = ((int)ResendCooldown.TotalSeconds).ToString();
+            return StatusCode(StatusCodes.Status429TooManyRequests,
+                new { error = "A verification code was just issued. Wait before requesting another." });
         }
         catch (OperationCanceledException)
         {

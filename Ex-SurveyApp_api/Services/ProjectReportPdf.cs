@@ -13,7 +13,7 @@ public sealed class ProjectReportPdf(IProjectPhotoStorage storage, ILogger logge
     private readonly Dictionary<string, byte[]?> assetBytes = new();
     public async Task<byte[]> Generate(ProjectReport report, CancellationToken ct)
     {
-        lock (FontLock) {GlobalFontSettings.FontResolver ??= new ReportFonts();}
+        EnsureFonts();
         foreach (var asset in report.Assets) {
             ct.ThrowIfCancellationRequested();
             try {
@@ -30,6 +30,8 @@ public sealed class ProjectReportPdf(IProjectPhotoStorage storage, ILogger logge
         using var writer = new Writer(report, assetBytes, logger, ct);
         return writer.Build();
     }
+
+    public static void EnsureFonts() { lock (FontLock) {GlobalFontSettings.FontResolver ??= new ReportFonts();} }
 
     public static string Answer(string? value) => value?.Trim().ToLowerInvariant() switch {
         "true" or "yes" or "pass" or "p" => "PASS",

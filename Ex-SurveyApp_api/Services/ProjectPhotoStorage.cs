@@ -14,6 +14,8 @@ public record StoredProjectPhotoContent(Stream Stream, string ContentType);
 
 public interface IProjectPhotoStorage
 {
+    Task<StoredProjectPhoto> SaveReferenceDocumentAsync(IFormFile file, Guid projectId, Guid documentId, CancellationToken cancellationToken)
+        => SaveHazardousAreaPlanAsync(file, projectId, cancellationToken);
     Task<StoredProjectPhoto> SaveClientLogoAsync(IFormFile file, Guid projectId, CancellationToken cancellationToken)
         => SaveAsync(file, projectId, Guid.Empty, cancellationToken);
     Task<StoredProjectPhoto> SaveHazardousAreaPlanAsync(IFormFile file, Guid projectId,
@@ -56,6 +58,9 @@ public class ProjectPhotoStorage : IProjectPhotoStorage
         IFormFile file, Guid projectId, CancellationToken cancellationToken)
         => SaveToDirectory(file, Path.Combine("plans", projectId.ToString("N")), cancellationToken, isPlan: true);
 
+    public Task<StoredProjectPhoto> SaveReferenceDocumentAsync(IFormFile file, Guid projectId, Guid documentId, CancellationToken cancellationToken)
+        => SaveToDirectory(file, Path.Combine("reference-documents", projectId.ToString("N"), documentId.ToString("N")), cancellationToken, isReferenceDocument: true);
+
     public async Task<StoredProjectPhoto> SaveAsync(IFormFile file, Guid projectId, Guid areaId,
         CancellationToken cancellationToken)
         => await SaveToDirectory(file, Path.Combine(projectId.ToString("N"), areaId.ToString("N")),
@@ -68,7 +73,7 @@ public class ProjectPhotoStorage : IProjectPhotoStorage
             cancellationToken);
 
     private async Task<StoredProjectPhoto> SaveToDirectory(
-        IFormFile file, string relativeDirectory, CancellationToken cancellationToken, bool isPlan = false, bool isClientLogo = false)
+        IFormFile file, string relativeDirectory, CancellationToken cancellationToken, bool isPlan = false, bool isClientLogo = false, bool isReferenceDocument = false)
     {
         if (file.Length <= 0)
             throw new ProjectPhotoValidationException(isPlan ? "Empty files are not allowed." : "Empty image files are not allowed.");
@@ -87,6 +92,12 @@ public class ProjectPhotoStorage : IProjectPhotoStorage
             throw new ProjectPhotoValidationException("Only JPG, JPEG and PNG images are allowed.");
         var hasSupportedContentType = file.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) ||
                                       file.ContentType.Equals("application/octet-stream", StringComparison.OrdinalIgnoreCase);
+        if (isReferenceDocument)
+        {
+            var expected = extension switch { ".pdf" => "application/pdf", ".jpg" or ".jpeg" => "image/jpeg", ".png" => "image/png", ".webp" => "image/webp", _ => "" };
+            if (expected.Length == 0 || !(file.ContentType.Equals(expected, StringComparison.OrdinalIgnoreCase) || file.ContentType.Equals("application/octet-stream", StringComparison.OrdinalIgnoreCase)))
+                throw new ProjectPhotoValidationException("Reference documents must be PDF, JPG, PNG or WebP files with a matching content type.");
+        }
         if (isPlan)
         {
             var expectedType = extension == ".pdf" ? "application/pdf" : extension == ".png" ? "image/png" : "image/jpeg";
@@ -106,12 +117,12 @@ public class ProjectPhotoStorage : IProjectPhotoStorage
         await using var input = file.OpenReadStream();
         var header = new byte[12];
         var bytesRead = await input.ReadAtLeastAsync(header.AsMemory(), header.Length, throwOnEndOfStream: false, cancellationToken);
-        var validContent = isPlan && extension == ".pdf"
+        var validContent = (isPlan || isReferenceDocument) && extension == ".pdf"
             ? bytesRead >= 5 && header.AsSpan(0, 5).SequenceEqual("%PDF-"u8)
             : HasValidImageSignature(header.AsSpan(0, bytesRead), extension);
         if (!validContent)
         {
-            if (isPlan) throw new ProjectPhotoValidationException("Only JPG, JPEG, PNG and PDF files are allowed.");
+            if (isPlan || isReferenceDocument) throw new ProjectPhotoValidationException("The file content does not match an allowed PDF or image type.");
             throw new ProjectPhotoValidationException($"Image '{Path.GetFileName(file.FileName)}' has invalid file content.");
         }
 

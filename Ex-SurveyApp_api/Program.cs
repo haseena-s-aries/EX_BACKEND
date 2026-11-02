@@ -1,7 +1,9 @@
 using Ex_SurveyApp_api.Data;
+using Ex_SurveyApp_api.Controllers;
 using Ex_SurveyApp_api.Models;
 using Ex_SurveyApp_api.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -10,6 +12,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
@@ -65,7 +68,11 @@ builder.Services.AddSingleton<TokenService>();
 builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("EmailSettings"));
 builder.Services.AddScoped<IEmailService, SmtpEmailService>();
 builder.Services.Configure<ProjectPhotoStorageSettings>(builder.Configuration.GetSection("ProjectPhotoStorage"));
+builder.Services.Configure<GeneratedReportArtifactStorageSettings>(builder.Configuration.GetSection("GeneratedReportArtifactStorage"));
+builder.Services.Configure<OfflineInspectionOptions>(builder.Configuration.GetSection("OfflineInspection"));
+builder.Services.Configure<EquipmentDocumentOptions>(builder.Configuration.GetSection("EquipmentDocuments"));
 builder.Services.AddSingleton<IProjectPhotoStorage, ProjectPhotoStorage>();
+builder.Services.AddSingleton<IGeneratedReportArtifactStorage, GeneratedReportArtifactStorage>();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -99,7 +106,26 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 
-builder.Services.AddAuthorization();
+builder.Services.AddTenantFoundation(builder.Configuration);
+builder.Services.AddInspectionActivityFoundation(builder.Configuration);
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = (context, _) =>
+    {
+        context.HttpContext.Response.Headers.RetryAfter = "300";
+        return ValueTask.CompletedTask;
+    };
+    options.AddPolicy("AnonymousAuth", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        factory: _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 20,
+            Window = TimeSpan.FromMinutes(5),
+            QueueLimit = 0,
+            AutoReplenishment = true
+        }));
+});
 builder.Services.AddDbContext<SurveyDbContext>(options =>
 {
     if (builder.Environment.IsDevelopment() && builder.Configuration.GetValue<bool>("UseInMemoryDatabase"))
@@ -115,49 +141,59 @@ var adminEmail = app.Configuration["BootstrapAdmin:Email"];
 var adminPassword = app.Configuration["BootstrapAdmin:Password"];
 var adminDisplayName = app.Configuration["BootstrapAdmin:DisplayName"] ?? "Administrator";
 var managerEmail = app.Configuration["BootstrapManager:Email"];
-var managerPassword = app.Configuration["BootstrManager:Password"];
+var managerPassword = app.Configuration["BootstrapManager:Password"];
 var managerDisplayName = app.Configuration["BootstrapManager:DisplayName"] ?? "Manager";
-if (string.IsNullOrWhiteSpace(adminEmail) != string.IsNullOrWhiteSpace(adminPassword))
-    throw new InvalidOperationException("BootstrapAdmin:Email and BootstrapAdmin:Password must both be set.");
-if (string.IsNullOrWhiteSpace(adminEmail) != string.IsNullOrWhiteSpace(adminPassword))
-    throw new InvalidOperationException("BootstrapManager:Email and BootstrapManager:Password must both be set.");
-if (!string.IsNullOrWhiteSpace(adminEmail) && !string.IsNullOrWhiteSpace(adminPassword))
+BootstrapAccountProvisioner.ValidateConfiguration("BootstrapAdmin", adminEmail, adminPassword);
+BootstrapAccountProvisioner.ValidateConfiguration("BootstrapManager", managerEmail, managerPassword);
+if ((!string.IsNullOrWhiteSpace(adminEmail) && !string.IsNullOrWhiteSpace(adminPassword)) ||
+    (!string.IsNullOrWhiteSpace(managerEmail) && !string.IsNullOrWhiteSpace(managerPassword)))
 {
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<SurveyDbContext>();
-    var normalizedAdminEmail = adminEmail.Trim().ToLowerInvariant();
-    var admin = await db.Users.FirstOrDefaultAsync(x => x.Email == normalizedAdminEmail);
     var passwordHasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher<User>>();
-    if (admin is null)
-    {
-        admin = new User
-        {
-            Email = normalizedAdminEmail,
-            DisplayName = adminDisplayName.Trim(),
-            PasswordHash = string.Empty,
-            Role = UserRole.Admin,
-            ApprovalStatus = ApprovalStatus.Approved
-        };
-        admin.PasswordHash = passwordHasher.HashPassword(admin, adminPassword);
-        db.Users.Add(admin);
-    }
-    else if (admin.Role != UserRole.Admin)
-    {
-        throw new InvalidOperationException("Bootstrap admin email belongs to a non-admin user.");
-    }
-    else
-    {
-        admin.DisplayName = adminDisplayName.Trim();
-        admin.IsActive = true;
-        admin.ApprovalStatus = ApprovalStatus.Approved;
-        if (passwordHasher.VerifyHashedPassword(admin, admin.PasswordHash, adminPassword) ==
-            PasswordVerificationResult.Failed)
-            admin.PasswordHash = passwordHasher.HashPassword(admin, adminPassword);
-    }
-
-    await db.SaveChangesAsync();
+    if (!string.IsNullOrWhiteSpace(adminEmail) && !string.IsNullOrWhiteSpace(adminPassword))
+        await BootstrapAccountProvisioner.ProvisionAsync(db, passwordHasher, adminEmail, adminPassword,
+            adminDisplayName, UserRole.Admin);
+    if (!string.IsNullOrWhiteSpace(managerEmail) && !string.IsNullOrWhiteSpace(managerPassword))
+        await BootstrapAccountProvisioner.ProvisionAsync(db, passwordHasher, managerEmail, managerPassword,
+            managerDisplayName, UserRole.Manager);
 }
 
+// Optional local demo accounts. Credentials are supplied through User Secrets/environment only.
+if (app.Environment.IsDevelopment() && app.Configuration.GetValue<bool>("DevelopmentAccounts:Enabled"))
+{
+    var accounts = new[]
+    {
+        (Section: "Manager", Role: UserRole.Manager, FallbackName: "Development Manager"),
+        (Section: "Surveyor1", Role: UserRole.Surveyor, FallbackName: "Development Surveyor 1"),
+        (Section: "Client", Role: UserRole.Client, FallbackName: "Development Client")
+    }.Select(x => (
+        x.Role,
+        Email: app.Configuration[$"DevelopmentAccounts:{x.Section}:Email"],
+        Password: app.Configuration[$"DevelopmentAccounts:{x.Section}:Password"],
+        DisplayName: app.Configuration[$"DevelopmentAccounts:{x.Section}:DisplayName"] ?? x.FallbackName,
+        ConfigSection: $"DevelopmentAccounts:{x.Section}"))
+        .ToArray();
+
+    foreach (var account in accounts)
+    {
+        BootstrapAccountProvisioner.ValidateConfiguration(account.ConfigSection, account.Email, account.Password);
+        if (string.IsNullOrWhiteSpace(account.Email) || string.IsNullOrWhiteSpace(account.Password))
+            throw new InvalidOperationException($"{account.ConfigSection}:Email and Password are required when DevelopmentAccounts:Enabled is true.");
+    }
+
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<SurveyDbContext>();
+    var passwordHasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher<User>>();
+    foreach (var account in accounts)
+        await BootstrapAccountProvisioner.ProvisionAsync(db, passwordHasher, account.Email!, account.Password!,
+            account.DisplayName, account.Role);
+}
+
+// The explicitly isolated integration profile supplies its own labeled synthetic checklist fixture.
+// Keep legacy startup seeding behavior unchanged in other Development and Production environments.
+if (!(app.Environment.IsDevelopment() &&
+      app.Configuration.GetValue<bool>("DevelopmentChecklistSeed:DisableStartupSeed")))
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<SurveyDbContext>();
@@ -233,18 +269,30 @@ using (var scope = app.Services.CreateScope())
 }
 
 // Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
+// Enable Swagger in all environments.
+// Secure access to the API separately if required.
+app.UseSwagger();
+app.UseSwaggerUI(options =>
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
+    options.SwaggerEndpoint(
+        "v1/swagger.json",
+        "Ex Survey API V1");
+
+    options.RoutePrefix = "swagger";
+});
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
 }
 
-if (!app.Environment.IsDevelopment())
-    app.UseHttpsRedirection();
-
+app.UseRouting();
 app.UseCors("AllowFrontend");
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
+app.MapGet("/", (HttpContext context) =>
+    Results.Redirect($"{context.Request.PathBase}/swagger/index.html"))
+    .ExcludeFromDescription();
 app.MapControllers();
 
 app.Run();

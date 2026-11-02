@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Ex_SurveyApp_api.Data;
+using Ex_SurveyApp_api.Attributes;
 using Ex_SurveyApp_api.Models;
 using Ex_SurveyApp_api.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -10,6 +11,7 @@ namespace Ex_SurveyApp_api.Controllers;
 
 [ApiController]
 [Authorize(Roles = "Admin,Manager")]
+[EndpointScopeInventory(EndpointScopeKind.TenantResource)]
 [Route("api/defects")]
 public class DefectsController(SurveyDbContext db, IProjectPhotoStorage storage) : ControllerBase
 {
