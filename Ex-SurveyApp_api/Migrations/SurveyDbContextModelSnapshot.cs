@@ -266,6 +266,11 @@ namespace Ex_SurveyApp_api.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
+                    b.Property<bool>("IsPlacedOnLayout")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true);
+
                     b.Property<string>("Location")
                         .HasMaxLength(300)
                         .HasColumnType("nvarchar(300)");
@@ -299,6 +304,13 @@ namespace Ex_SurveyApp_api.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)")
                         .HasDefaultValue("Unreviewed");
+
+                    b.Property<string>("RegistrationStatus")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)")
+                        .HasDefaultValue("Verified");
 
                     b.Property<string>("RfidIdentificationMethod")
                         .HasMaxLength(100)
@@ -492,6 +504,10 @@ namespace Ex_SurveyApp_api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("ApplicableGrades")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
                     b.Property<string>("ApplicableProtectionTypes")
                         .HasMaxLength(1000)
                         .HasColumnType("nvarchar(1000)");
@@ -534,13 +550,26 @@ namespace Ex_SurveyApp_api.Migrations
                     b.Property<int>("SortOrder")
                         .HasColumnType("int");
 
+                    b.Property<int?>("SourceItemNumber")
+                        .HasColumnType("int");
+
+                    b.Property<string>("SourceItemReference")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("SubChecksJson")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
                     b.Property<string>("Text")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ChecklistTemplateId");
+                    b.HasIndex("ChecklistTemplateId", "SourceItemReference")
+                        .IsUnique()
+                        .HasFilter("[SourceItemReference] IS NOT NULL");
 
                     b.ToTable("ChecklistQuestions");
                 });
@@ -1540,6 +1569,68 @@ namespace Ex_SurveyApp_api.Migrations
                     b.HasIndex("DocumentId", "OccurredAt");
 
                     b.ToTable("EquipmentReferenceDocumentEvents", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.EquipmentScanEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ActorUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AreaId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ClientEventId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Discrepancy")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<Guid?>("EquipmentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Identifier")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("MatchResult")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("RecordedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset>("ScannedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Technology")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorUserId");
+
+                    b.HasIndex("AreaId");
+
+                    b.HasIndex("ClientEventId")
+                        .IsUnique();
+
+                    b.HasIndex("EquipmentId");
+
+                    b.HasIndex("ProjectId", "AreaId", "ScannedAt");
+
+                    b.ToTable("EquipmentScanEvents");
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.EquipmentTagAssignment", b =>
@@ -2979,6 +3070,9 @@ namespace Ex_SurveyApp_api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid?>("AreaEquipmentId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<Guid?>("AreaId")
                         .HasColumnType("uniqueidentifier");
 
@@ -2992,6 +3086,10 @@ namespace Ex_SurveyApp_api.Migrations
                     b.Property<Guid?>("EquipmentId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("EquipmentPhotoRole")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
                     b.Property<string>("FileName")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -3000,6 +3098,9 @@ namespace Ex_SurveyApp_api.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("JobId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("ProjectId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("StorageKey")
@@ -3017,6 +3118,8 @@ namespace Ex_SurveyApp_api.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("AreaEquipmentId");
+
                     b.HasIndex("AreaId");
 
                     b.HasIndex("EquipmentId");
@@ -3028,6 +3131,8 @@ namespace Ex_SurveyApp_api.Migrations
                     b.HasIndex("SurveySessionId");
 
                     b.HasIndex("UploadedById");
+
+                    b.HasIndex("ProjectId", "AreaEquipmentId", "UploadedAt");
 
                     b.ToTable("Files");
                 });
@@ -3772,6 +3877,32 @@ namespace Ex_SurveyApp_api.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.EquipmentScanEvent", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("ActorUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.ProjectArea", null)
+                        .WithMany()
+                        .HasForeignKey("AreaId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.AreaEquipment", null)
+                        .WithMany()
+                        .HasForeignKey("EquipmentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ex_SurveyApp_api.Models.Project", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Ex_SurveyApp_api.Models.EquipmentTagAssignment", b =>
                 {
                     b.HasOne("Ex_SurveyApp_api.Models.User", null)
@@ -4229,6 +4360,11 @@ namespace Ex_SurveyApp_api.Migrations
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.SurveyFile", b =>
                 {
+                    b.HasOne("Ex_SurveyApp_api.Models.AreaEquipment", null)
+                        .WithMany()
+                        .HasForeignKey("AreaEquipmentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Ex_SurveyApp_api.Models.Area", null)
                         .WithMany()
                         .HasForeignKey("AreaId")
@@ -4247,6 +4383,11 @@ namespace Ex_SurveyApp_api.Migrations
                     b.HasOne("Ex_SurveyApp_api.Models.Job", null)
                         .WithMany()
                         .HasForeignKey("JobId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ex_SurveyApp_api.Models.Project", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("Ex_SurveyApp_api.Models.SurveySession", null)

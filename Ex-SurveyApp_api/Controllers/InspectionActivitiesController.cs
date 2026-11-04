@@ -91,6 +91,8 @@ public sealed class InspectionActivitiesController(SurveyDbContext db, IInspecti
         if (!Enum.IsDefined(request.Grade)) return BadRequest(new { error = "Select Visual, Close, or Detailed." });
         var equipment = await db.AreaEquipment.AsNoTracking().SingleOrDefaultAsync(x => x.Id == equipmentId, ct);
         if (equipment is null || !await CanAccessProject(equipment.ProjectId, ct)) return NotFound();
+        if (!string.Equals(equipment.RegistrationStatus, "Verified", StringComparison.OrdinalIgnoreCase))
+            return Conflict(new { error = "Equipment registration is awaiting independent review. It cannot start an official inspection until verified." });
         var actor = await db.Users.AsNoTracking().SingleAsync(x => x.Id == ActorId, ct);
         var templates = await db.ChecklistTemplates.AsNoTracking().Where(x => x.IsActive && x.LifecycleStatus == ChecklistLifecycleStatus.Published && x.InspectionType == request.Grade).OrderByDescending(x => x.Version).ToListAsync(ct);
         var protectionType = equipment.ExProtectionType?.Trim();
@@ -112,17 +114,9 @@ public sealed class InspectionActivitiesController(SurveyDbContext db, IInspecti
         var scheduledTasks = await db.InspectionTasks.Where(x => x.AreaEquipmentId == equipment.Id && x.WorkPackageId != null && (x.StatusCode == "Planned" || x.StatusCode == "InProgress") && x.PlannedGrade == request.Grade).ToListAsync(ct);
         if (actor.Role == UserRole.Surveyor) scheduledTasks = scheduledTasks.Where(x => x.AssignedUserId == actor.Id).ToList();
         if (scheduledTasks.Count > 1) return Conflict(new { error = "More than one active task matches this equipment and grade. Ask the planner to resolve the duplicate assignment." });
-        InspectionTask? task;
-        if (scheduledTasks.Count == 1) task = scheduledTasks[0];
-        else
-        {
-            var activeScheduledTaskExists = await db.InspectionTasks.AnyAsync(x => x.AreaEquipmentId == equipment.Id && x.WorkPackageId != null && (x.StatusCode == "Planned" || x.StatusCode == "InProgress"), ct);
-            if (activeScheduledTaskExists) return actor.Role == UserRole.Surveyor ? Forbid() : Conflict(new { error = "An active work package task exists for a different inspection grade." });
-            var plan = await db.InspectionPlans.FirstOrDefaultAsync(x => x.ProjectId == equipment.ProjectId && x.Name == "Equipment inspection activities", ct);
-            if (plan is null) { plan = new InspectionPlan { ProjectId = equipment.ProjectId, Name = "Equipment inspection activities", CreatedAt = DateTimeOffset.UtcNow }; db.InspectionPlans.Add(plan); await db.SaveChangesAsync(ct); }
-            task = await db.InspectionTasks.FirstOrDefaultAsync(x => x.InspectionPlanId == plan.Id && x.AreaEquipmentId == equipment.Id, ct);
-            if (task is null) { task = new InspectionTask { InspectionPlanId = plan.Id, AreaEquipmentId = equipment.Id, AssignedUserId = equipment.ProjectId == Guid.Empty ? null : actor.Role == UserRole.Surveyor ? actor.Id : (await db.Projects.Where(x => x.Id == equipment.ProjectId).Select(x => (Guid?)x.AssignedSurveyorId).SingleAsync(ct)) }; db.InspectionTasks.Add(task); await db.SaveChangesAsync(ct); }
-        }
+        if (scheduledTasks.Count == 0)
+            return Conflict(new { error = "No approved active work-package task exists for this equipment and grade. Ask the authorized Inspection Lead to verify registration and assign a task before starting." });
+        var task = scheduledTasks[0];
         if (task.AssignedUserId != actor.Id && actor.Role == UserRole.Surveyor) return Forbid();
         if (task.PlannedGrade.HasValue && task.PlannedGrade.Value != request.Grade)
             return Conflict(new { error = "Inspection grade does not match the approved work package." });

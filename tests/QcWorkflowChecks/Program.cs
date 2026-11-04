@@ -10,6 +10,11 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 
 var ct = CancellationToken.None;
+if (args.Contains("--sample-checklist-checks")) { await SampleChecklistChecks.Run(); return; }
+if (args.Contains("--database-startup-checks")) { await DatabaseStartupChecks.Run(); return; }
+if (args.Contains("--project-http-checks")) { await ProjectUploadHttpChecks.Run(); return; }
+if (args.Contains("--checklist-seed-checks")) { await ChecklistSeedChecks.Run(); return; }
+if (args.Contains("--job-centric-equipment-checks")) { await JobCentricEquipmentChecks.Run(); return; }
 if (args.Contains("--bootstrap-checks")) { await BootstrapChecks.Run(); return; }
 if (args.Contains("--security-checks")) { await OtpSecurityChecks.Run(); return; }
 if (args.Contains("--migration-script-check")) { MigrationChecks.RunOtpSecurityScript(); return; }

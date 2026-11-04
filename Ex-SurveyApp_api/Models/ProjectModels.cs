@@ -68,6 +68,8 @@ public class AreaEquipment
     public int SequenceNo { get; set; }
     public decimal XPercent { get; set; }
     public decimal YPercent { get; set; }
+    /// <summary>False when field-registered before a layout position is known.</summary>
+    public bool IsPlacedOnLayout { get; set; } = true;
     public required string TagNumber { get; set; }
     public string? EquipmentCode { get; set; }
     public string? RfidTagUid { get; set; }
@@ -92,6 +94,8 @@ public class AreaEquipment
     /// <summary>JSON array of metadata keys explicitly confirmed as not applicable. Null means unknown, not N/A.</summary>
     public string? NotApplicableFieldsJson { get; set; }
     public string ReconciliationStatus { get; set; } = "Unreviewed";
+    /// <summary>Registration review is independent from inspection QC and defect closure.</summary>
+    public string RegistrationStatus { get; set; } = "Verified";
     public Guid CreatedByUserId { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
@@ -125,4 +129,21 @@ public sealed class EquipmentTagHistory
     public required string Reason { get; set; }
     public Guid ActorUserId { get; set; }
     public DateTimeOffset OccurredAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
+/// <summary>Append-only record of an equipment identifier lookup inside a field job.</summary>
+public sealed class EquipmentScanEvent
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid ClientEventId { get; set; }
+    public Guid ProjectId { get; set; }
+    public Guid AreaId { get; set; }
+    public Guid? EquipmentId { get; set; }
+    public Guid ActorUserId { get; set; }
+    public required string Identifier { get; set; }
+    public required string Technology { get; set; }
+    public required string MatchResult { get; set; }
+    public string? Discrepancy { get; set; }
+    public DateTimeOffset ScannedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset RecordedAt { get; set; } = DateTimeOffset.UtcNow;
 }

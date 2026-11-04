@@ -8,7 +8,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace Ex_SurveyApp_api.Migrations
 {
     /// <inheritdoc />
-    public partial class surveyaoo : Migration
+    public partial class InitialCreate : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -867,6 +867,7 @@ namespace Ex_SurveyApp_api.Migrations
                     SequenceNo = table.Column<int>(type: "int", nullable: false),
                     XPercent = table.Column<decimal>(type: "decimal(5,2)", precision: 5, scale: 2, nullable: false),
                     YPercent = table.Column<decimal>(type: "decimal(5,2)", precision: 5, scale: 2, nullable: false),
+                    IsPlacedOnLayout = table.Column<bool>(type: "bit", nullable: false, defaultValue: true),
                     TagNumber = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: false),
                     EquipmentCode = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: true),
                     RfidTagUid = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: true),
@@ -890,6 +891,7 @@ namespace Ex_SurveyApp_api.Migrations
                     RfidIdentificationMethod = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: true),
                     NotApplicableFieldsJson = table.Column<string>(type: "nvarchar(2000)", maxLength: 2000, nullable: true),
                     ReconciliationStatus = table.Column<string>(type: "nvarchar(50)", maxLength: 50, nullable: false, defaultValue: "Unreviewed"),
+                    RegistrationStatus = table.Column<string>(type: "nvarchar(30)", maxLength: 30, nullable: false, defaultValue: "Verified"),
                     CreatedByUserId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
                     CreatedAt = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false),
                     UpdatedAt = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false)
@@ -1180,6 +1182,52 @@ namespace Ex_SurveyApp_api.Migrations
                     table.ForeignKey(
                         name: "FK_EquipmentReferenceDocuments_Users_UploadedByUserId",
                         column: x => x.UploadedByUserId,
+                        principalTable: "Users",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "EquipmentScanEvents",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    ClientEventId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    ProjectId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    AreaId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    EquipmentId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    ActorUserId = table.Column<Guid>(type: "uniqueidentifier", nullable: false),
+                    Identifier = table.Column<string>(type: "nvarchar(200)", maxLength: 200, nullable: false),
+                    Technology = table.Column<string>(type: "nvarchar(20)", maxLength: 20, nullable: false),
+                    MatchResult = table.Column<string>(type: "nvarchar(20)", maxLength: 20, nullable: false),
+                    Discrepancy = table.Column<string>(type: "nvarchar(1000)", maxLength: 1000, nullable: true),
+                    ScannedAt = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false),
+                    RecordedAt = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_EquipmentScanEvents", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_EquipmentScanEvents_AreaEquipment_EquipmentId",
+                        column: x => x.EquipmentId,
+                        principalTable: "AreaEquipment",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_EquipmentScanEvents_ProjectAreas_AreaId",
+                        column: x => x.AreaId,
+                        principalTable: "ProjectAreas",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_EquipmentScanEvents_Projects_ProjectId",
+                        column: x => x.ProjectId,
+                        principalTable: "Projects",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_EquipmentScanEvents_Users_ActorUserId",
+                        column: x => x.ActorUserId,
                         principalTable: "Users",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
@@ -1578,7 +1626,10 @@ namespace Ex_SurveyApp_api.Migrations
                     SurveySessionId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
                     AreaId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
                     EquipmentId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    ProjectId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    AreaEquipmentId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
                     FindingId = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
+                    EquipmentPhotoRole = table.Column<string>(type: "nvarchar(40)", maxLength: 40, nullable: true),
                     Category = table.Column<int>(type: "int", nullable: false),
                     FileName = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     StorageKey = table.Column<string>(type: "nvarchar(max)", nullable: false),
@@ -1589,6 +1640,12 @@ namespace Ex_SurveyApp_api.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_Files", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_Files_AreaEquipment_AreaEquipmentId",
+                        column: x => x.AreaEquipmentId,
+                        principalTable: "AreaEquipment",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
                         name: "FK_Files_Areas_AreaId",
                         column: x => x.AreaId,
@@ -1611,6 +1668,12 @@ namespace Ex_SurveyApp_api.Migrations
                         name: "FK_Files_Jobs_JobId",
                         column: x => x.JobId,
                         principalTable: "Jobs",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Restrict);
+                    table.ForeignKey(
+                        name: "FK_Files_Projects_ProjectId",
+                        column: x => x.ProjectId,
+                        principalTable: "Projects",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
@@ -2502,6 +2565,32 @@ namespace Ex_SurveyApp_api.Migrations
                 column: "UploadedByUserId");
 
             migrationBuilder.CreateIndex(
+                name: "IX_EquipmentScanEvents_ActorUserId",
+                table: "EquipmentScanEvents",
+                column: "ActorUserId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_EquipmentScanEvents_AreaId",
+                table: "EquipmentScanEvents",
+                column: "AreaId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_EquipmentScanEvents_ClientEventId",
+                table: "EquipmentScanEvents",
+                column: "ClientEventId",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_EquipmentScanEvents_EquipmentId",
+                table: "EquipmentScanEvents",
+                column: "EquipmentId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_EquipmentScanEvents_ProjectId_AreaId_ScannedAt",
+                table: "EquipmentScanEvents",
+                columns: new[] { "ProjectId", "AreaId", "ScannedAt" });
+
+            migrationBuilder.CreateIndex(
                 name: "IX_EquipmentTagAssignments_AssignedByUserId",
                 table: "EquipmentTagAssignments",
                 column: "AssignedByUserId");
@@ -2551,6 +2640,11 @@ namespace Ex_SurveyApp_api.Migrations
                 column: "ProjectId");
 
             migrationBuilder.CreateIndex(
+                name: "IX_Files_AreaEquipmentId",
+                table: "Files",
+                column: "AreaEquipmentId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_Files_AreaId",
                 table: "Files",
                 column: "AreaId");
@@ -2569,6 +2663,11 @@ namespace Ex_SurveyApp_api.Migrations
                 name: "IX_Files_JobId",
                 table: "Files",
                 column: "JobId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Files_ProjectId_AreaEquipmentId_UploadedAt",
+                table: "Files",
+                columns: new[] { "ProjectId", "AreaEquipmentId", "UploadedAt" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_Files_SurveySessionId",
@@ -3046,6 +3145,9 @@ namespace Ex_SurveyApp_api.Migrations
 
             migrationBuilder.DropTable(
                 name: "EquipmentReferenceDocumentEvents");
+
+            migrationBuilder.DropTable(
+                name: "EquipmentScanEvents");
 
             migrationBuilder.DropTable(
                 name: "EquipmentTagAssignments");

@@ -58,6 +58,38 @@ internal static class BootstrapChecks
             Console.WriteLine("PASS: conflicting bootstrap role is rejected");
         }
 
+        var conflicting = await db.Users.SingleAsync(x => x.Email == "admin@example.test");
+        var conflictId = conflicting.Id;
+        var result = await BootstrapAccountProvisioner.CreateDevelopmentAccountIfMissingAsync(
+            db, hasher, " Admin@Example.Test ", "replacement-password", "Demo Manager", UserRole.Manager);
+        db.ChangeTracker.Clear();
+        conflicting = await db.Users.SingleAsync(x => x.Id == conflictId);
+        Check(result == DevelopmentAccountSeedResult.RoleConflict && conflicting.Role == UserRole.Admin &&
+              conflicting.PasswordHash == "x" && conflicting.DisplayName == "Existing Admin",
+            "Optional demo role conflicts do not throw or overwrite the existing user");
+
+        var edited = await db.Users.SingleAsync(x => x.Email == "manager@example.test");
+        edited.DisplayName = "User-managed name";
+        edited.IsActive = false;
+        edited.ApprovalStatus = ApprovalStatus.Rejected;
+        var editedHash = edited.PasswordHash;
+        await db.SaveChangesAsync();
+        result = await BootstrapAccountProvisioner.CreateDevelopmentAccountIfMissingAsync(
+            db, hasher, edited.Email, "replacement-password", "Demo name", UserRole.Manager);
+        db.ChangeTracker.Clear();
+        edited = await db.Users.SingleAsync(x => x.Email == "manager@example.test");
+        Check(result == DevelopmentAccountSeedResult.AlreadyExists && edited.DisplayName == "User-managed name" &&
+              !edited.IsActive && edited.ApprovalStatus == ApprovalStatus.Rejected && edited.PasswordHash == editedHash,
+            "Optional demo seeding preserves existing name, password, approval and active state");
+
+        result = await BootstrapAccountProvisioner.CreateDevelopmentAccountIfMissingAsync(
+            db, hasher, "new-demo@example.test", "demo-password", "New Demo", UserRole.Surveyor);
+        var created = await db.Users.SingleAsync(x => x.Email == "new-demo@example.test");
+        Check(result == DevelopmentAccountSeedResult.Created && created.Role == UserRole.Surveyor &&
+              created.IsActive && created.ApprovalStatus == ApprovalStatus.Approved &&
+              hasher.VerifyHashedPassword(created, created.PasswordHash, "demo-password") != PasswordVerificationResult.Failed,
+            "Missing demo accounts are still created with an approved role and hashed password");
+
         Console.WriteLine("Bootstrap checks passed.");
     }
 

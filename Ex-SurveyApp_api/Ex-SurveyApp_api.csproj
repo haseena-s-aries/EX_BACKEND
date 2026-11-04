@@ -8,6 +8,7 @@
   </PropertyGroup>
   <ItemGroup>
     <EmbeddedResource Include="Assets/Reports/cover.png" LogicalName="ExSurvey.ReportCover" />
+    <EmbeddedResource Include="Assets/SampleChecklist.json" LogicalName="ExSurvey.SampleChecklist" />
     <EmbeddedResource Include="Assets/Companies.json" LogicalName="ExSurvey.Companies" />
     <EmbeddedResource Include="Assets/CompanyLogos/*.png" LogicalName="ExSurvey.CompanyLogos.%(Filename)%(Extension)" />
   </ItemGroup>

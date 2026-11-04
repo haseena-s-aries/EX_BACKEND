@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Ex_SurveyApp_api.Data;
 using Ex_SurveyApp_api.Models;
+using Ex_SurveyApp_api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -14,6 +15,15 @@ namespace Ex_SurveyApp_api.Controllers;
 public sealed class ChecklistAdministrationController(SurveyDbContext db) : ControllerBase
 {
     private Guid Actor => Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var id) ? id : Guid.Empty;
+
+    [HttpPost("imports/sample-pdf")]
+    [Authorize(Roles = "Admin,Manager")]
+    public async Task<IActionResult> ImportSample(CancellationToken ct)
+    {
+        var templates = await SampleChecklistImporter.ImportDraftsAsync(db, Actor, ct);
+        return Ok(new { message = "Sample checklist imported as drafts. Review and submit each grade for independent technical approval.",
+            templates = templates.Select(x => new { x.Id, x.InspectionType, x.Version, x.LifecycleStatus }) });
+    }
 
     [HttpGet("templates")]
     [Authorize(Roles = "Admin,Manager,Qc")]
@@ -62,24 +72,34 @@ public sealed class ChecklistAdministrationController(SurveyDbContext db) : Cont
         var oldQuestionIds = old.Select(x => x.Id).ToArray();
         if (await db.SurveySessions.AnyAsync(x => x.ChecklistTemplateId == id, ct) || (oldQuestionIds.Length > 0 && await db.SurveyAnswers.AnyAsync(x => oldQuestionIds.Contains(x.ChecklistQuestionId), ct)))
             return Conflict(new {error = "This draft is referenced by historical surveys and its checkpoint identifiers cannot be replaced. Create a new template from the approved controlled source."});
-        db.ChecklistQuestions.RemoveRange(old);
         var questions = new List<ChecklistQuestion>();
         foreach (var q in request.Questions.OrderBy(x => x.SortOrder))
         {
-            if (!Valid(q.Text, 4000) || q.SortOrder < 1 || q.SectionCode is not ("Apparatus" or "Installation" or "Environment") || q.ResponseScaleCode != "PassFailNA" ||
+            if (!ValidSourceMetadata(q, template.InspectionType) || !Valid(q.Text, 4000) || q.SortOrder < 1 || q.SectionCode is not ("Apparatus" or "Installation" or "Environment") || q.ResponseScaleCode is not ("PassFailNA" or "BooleanChecked") ||
                 (q.NumericReadingEnabled && (!Valid(q.MeasurementUnit, 40) || (q.MinimumReading.HasValue && q.MaximumReading.HasValue && q.MinimumReading > q.MaximumReading))) ||
                 (!q.NumericReadingEnabled && (q.NumericReadingRequired || q.MeasurementUnit is not null || q.MinimumReading.HasValue || q.MaximumReading.HasValue)))
                 return BadRequest(new {error = "Checkpoint has invalid section, response scale, measurement unit or limits."});
-            questions.Add(new ChecklistQuestion {ChecklistTemplateId = id, Text = q.Text.Trim(), SortOrder = q.SortOrder, IsRequired = q.IsRequired,
+            questions.Add(new ChecklistQuestion {Id = q.SourceItemReference is null ? Guid.NewGuid() : old.FirstOrDefault(x => x.SourceItemReference == q.SourceItemReference)?.Id ?? Guid.NewGuid(), ChecklistTemplateId = id, Text = q.Text.Trim(), SortOrder = q.SortOrder, IsRequired = q.IsRequired,
+                SourceItemReference = q.SourceItemReference, SourceItemNumber = q.SourceItemNumber, ApplicableGrades = q.ApplicableGrades, SubChecksJson = q.SubChecksJson,
                 SectionCode = q.SectionCode, ApplicableProtectionTypes = Trim(q.ApplicableProtectionTypes, 1000) is { } types ? NormalizeList(types) : null,
                 RequireRemarkOnFail = q.RequireRemarkOnFail, ResponseScaleCode = q.ResponseScaleCode, NumericReadingEnabled = q.NumericReadingEnabled,
                 MeasurementUnit = q.NumericReadingEnabled ? q.MeasurementUnit!.Trim() : null, MinimumReading = q.NumericReadingEnabled ? q.MinimumReading : null,
                 MaximumReading = q.NumericReadingEnabled ? q.MaximumReading : null, NumericReadingRequired = q.NumericReadingEnabled && q.NumericReadingRequired});
         }
+        var sourceReferences = questions.Where(x => x.SourceItemReference != null).Select(x => x.SourceItemReference).ToArray();
+        if (sourceReferences.Distinct().Count() != sourceReferences.Length) return BadRequest(new {error = "Source item references must be unique within a checklist version."});
         if (questions.Select(x => x.SortOrder).Distinct().Count() != questions.Count) return BadRequest(new {error = "Checkpoint order values must be unique."});
         template.Name = request.Name.Trim(); template.StandardReference = request.StandardReference.Trim(); template.StandardEdition = Trim(request.StandardEdition, 50);
         template.ControlledSourceReference = Trim(request.ControlledSourceReference, 500); template.ApplicableProtectionTypes = NormalizeList(request.ApplicableProtectionTypes);
-        db.ChecklistQuestions.AddRange(questions); template.DraftRevision = checked(template.DraftRevision + 1);
+        var retainedIds = questions.Select(x => x.Id).ToHashSet();
+        db.ChecklistQuestions.RemoveRange(old.Where(x => !retainedIds.Contains(x.Id)));
+        foreach (var question in questions)
+        {
+            var original = old.FirstOrDefault(x => x.Id == question.Id);
+            if (original is null) db.ChecklistQuestions.Add(question);
+            else db.Entry(original).CurrentValues.SetValues(question);
+        }
+        template.DraftRevision = checked(template.DraftRevision + 1);
         db.AuditLogs.Add(new AuditLog {EntityType = "ChecklistTemplate", EntityId = id, ActorId = Actor, Action = "Checklist Draft Edited", Comments = $"Draft version {template.Version}; {questions.Count} checkpoint(s)."});
         await db.SaveChangesAsync(ct);
         return Ok(new {template.Id, template.Name, template.Version, template.DraftRevision, template.LifecycleStatus, QuestionCount = questions.Count});
@@ -98,7 +118,8 @@ public sealed class ChecklistAdministrationController(SurveyDbContext db) : Cont
             ControlledSourceReference = source.ControlledSourceReference, ApplicableProtectionTypes = source.ApplicableProtectionTypes, CreatedByUserId = Actor};
         db.ChecklistTemplates.Add(clone);
         foreach (var q in questions) db.ChecklistQuestions.Add(new ChecklistQuestion {ChecklistTemplateId = clone.Id, Text = q.Text, SortOrder = q.SortOrder, IsRequired = q.IsRequired,
-            SectionCode = q.SectionCode, ApplicableProtectionTypes = q.ApplicableProtectionTypes, RequireRemarkOnFail = q.RequireRemarkOnFail, ResponseScaleCode = q.ResponseScaleCode,
+            SourceItemReference = q.SourceItemReference, SourceItemNumber = q.SourceItemNumber, ApplicableGrades = q.ApplicableGrades, SubChecksJson = q.SubChecksJson,
+                SectionCode = q.SectionCode, ApplicableProtectionTypes = q.ApplicableProtectionTypes, RequireRemarkOnFail = q.RequireRemarkOnFail, ResponseScaleCode = q.ResponseScaleCode,
             NumericReadingEnabled = q.NumericReadingEnabled, MeasurementUnit = q.MeasurementUnit, MinimumReading = q.MinimumReading, MaximumReading = q.MaximumReading, NumericReadingRequired = q.NumericReadingRequired});
         await db.SaveChangesAsync(ct);
         return CreatedAtAction(nameof(Preview), new {id = clone.Id}, new {clone.Id, clone.FamilyId, clone.Version, clone.LifecycleStatus});
@@ -149,6 +170,28 @@ public sealed class ChecklistAdministrationController(SurveyDbContext db) : Cont
         return Ok(new {template.Id, template.LifecycleStatus});
     }
 
+    private static bool ValidSourceMetadata(ChecklistQuestionInput q, InspectionType grade)
+    {
+        if (q.SourceItemReference?.Length > 200 || q.SourceItemNumber is <= 0 ||
+            (q.SourceItemReference != null && q.SourceItemNumber is null) || q.ApplicableGrades?.Length > 100 || q.SubChecksJson?.Length > 4000)
+            return false;
+        if (q.ApplicableGrades != null)
+        {
+            var grades = q.ApplicableGrades.Split(',');
+            if (!grades.Contains(grade.ToString()) || grades.Any(x => !Enum.TryParse<InspectionType>(x, out var value) || !Enum.IsDefined(value))) return false;
+        }
+        if (q.SubChecksJson != null)
+        {
+            try
+            {
+                var checks = System.Text.Json.JsonSerializer.Deserialize<SampleSubCheck[]>(q.SubChecksJson, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+                if (checks is null || checks.Any(x => string.IsNullOrWhiteSpace(x.Label) || x.ApplicableGrades is null || x.ApplicableGrades.Any(g => !Enum.TryParse<InspectionType>(g, out var value) || !Enum.IsDefined(value)))) return false;
+            }
+            catch (System.Text.Json.JsonException) { return false; }
+        }
+        return true;
+    }
+
     private static bool Valid(string? value, int max) => !string.IsNullOrWhiteSpace(value) && value.Trim().Length <= max;
     private static string? Trim(string? value, int max) => string.IsNullOrWhiteSpace(value) ? null : value.Trim().Length <= max ? value.Trim() : throw new ArgumentException($"Field exceeds {max} characters.");
     private static string NormalizeList(string value) => string.Join(",", value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).Distinct(StringComparer.OrdinalIgnoreCase));
@@ -156,5 +199,5 @@ public sealed class ChecklistAdministrationController(SurveyDbContext db) : Cont
 
 public sealed record CreateChecklistRequest(string Name, InspectionType Grade, string StandardReference, string? StandardEdition, string? ControlledSourceReference, string ApplicableProtectionTypes);
 public sealed record EditChecklistRequest(int ExpectedRevision, string Name, string StandardReference, string? StandardEdition, string? ControlledSourceReference, string ApplicableProtectionTypes, IReadOnlyList<ChecklistQuestionInput> Questions);
-public sealed record ChecklistQuestionInput(string Text, int SortOrder, string SectionCode, bool IsRequired, string ResponseScaleCode, string? ApplicableProtectionTypes, bool RequireRemarkOnFail, bool NumericReadingEnabled, string? MeasurementUnit, decimal? MinimumReading, decimal? MaximumReading, bool NumericReadingRequired);
+public sealed record ChecklistQuestionInput(string Text, int SortOrder, string SectionCode, bool IsRequired, string ResponseScaleCode, string? ApplicableProtectionTypes, bool RequireRemarkOnFail, bool NumericReadingEnabled, string? MeasurementUnit, decimal? MinimumReading, decimal? MaximumReading, bool NumericReadingRequired, string? SourceItemReference = null, int? SourceItemNumber = null, string? ApplicableGrades = null, string? SubChecksJson = null);
 public sealed record ChecklistApprovalRequest(string Comments);

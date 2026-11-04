@@ -1,0 +1,741 @@
+{
+  "source": "Sample checklist.pdf",
+  "sourceSha256": "18769b86c18fccba3643287bc4917218c7420cd641e95e0357d85a70573581c6",
+  "sourceRevision": "sample-checklist-2026-10-v1",
+  "notes": [
+    "Inspection answers P/F/NA, remarks, status, equipment data and signature excluded.",
+    "White grade cells are eligible even when the sample answer is NA; grey cells alone indicate unavailability.",
+    "Section numbering and merged protection cells were verified visually across both pages.",
+    "A.9 and B.7 keep physical/visual sub-checks within one parent; a single boolean remains per parent per grade.",
+    "PDF unmapped dash glyphs normalized to en dashes; original wording including apparent typos retained.",
+    "This supplied sample is not evidence of compliance with the latest inspection standard.",
+    "A.9 extracted andblanking spacing normalized to the visually separated words and blanking."
+  ],
+  "items": [
+    {
+      "section": "Apparatus",
+      "itemNumber": 1,
+      "text": "Circuit and/or Apparatus is appropriate to area classification, marked with acceptable Ex compliance plate.",
+      "protectionApplicability": "Common check point",
+      "applicableGrades": [
+        "Detailed",
+        "Close",
+        "Visual"
+      ],
+      "sourcePage": 1,
+      "subChecks": []
+    },
+    {
+      "section": "Apparatus",
+      "itemNumber": 2,
+      "text": "Apparatus category and/or group is correct",
+      "protectionApplicability": "Common check point",
+      "applicableGrades": [
+        "Detailed",
+        "Close"
+      ],
+      "sourcePage": 1,
+      "subChecks": []
+    },
+    {
+      "section": "Apparatus",
+      "itemNumber": 3,
+      "text": "Apparatus temperature class is correct",
+      "protectionApplicability": "Common check point",
+      "applicableGrades": [
+        "Detailed",
+        "Close"
+      ],
+      "sourcePage": 1,
+      "subChecks": []
+    },
+    {
+      "section": "Apparatus",
+      "itemNumber": 4,
+      "text": "Apparatus circuit identification is correct",
+      "protectionApplicability": "Common check point",
+      "applicableGrades": [
+        "Detailed"
+      ],
+      "sourcePage": 1,
+      "subChecks": []
+    },
+    {
+      "section": "Apparatus",
+      "itemNumber": 5,
+      "text": "Apparatus circuit identification is available",
+      "protectionApplicability": "Common check point",
+      "applicableGrades": [
+        "Detailed",
+        "Close",
+        "Visual"
+      ],
+      "sourcePage": 1,
+      "subChecks": []
+    },
+    {
+      "section": "Apparatus",
+      "itemNumber": 6,
+      "text": "Enclosure, glass parts and glass-to-metal sealing gaskets and/or compounds are satisfactory, clean, undamaged.",
+      "protectionApplicability": "Common check point",
+      "applicableGrades": [
+        "Detailed",
+        "Close",
+        "Visual"
+      ],
+      "sourcePage": 1,
+      "subChecks": []
+    },
+    {
+      "section": "Apparatus",
+      "itemNumber": 7,
+      "text": "There are no unauthorized modifications",
+      "protectionApplicability": "Common check point",
+      "applicableGrades": [
+        "Detailed"
+      ],
+      "sourcePage": 1,
+      "subChecks": []
+    },
+    {
+      "section": "Apparatus",
+      "itemNumber": 8,
+      "text": "There are no visible unauthorized modifications",
+      "protectionApplicability": "Common check point",
+      "applicableGrades": [
+        "Close",
+        "Visual"
+      ],
+      "sourcePage": 1,
+      "subChecks": []
+    },
+    {
+      "section": "Apparatus",
+      "itemNumber": 9,
+      "text": "Bolts, cable entry devices (direct and indirect) and blanking elements are of the correct type and are complete and tight – physical check\n– visual check",
+      "protectionApplicability": "Common check point",
+      "applicableGrades": [
+        "Detailed",
+        "Close",
+        "Visual"
+      ],
+      "sourcePage": 1,
+      "subChecks": [
+        {
+          "label": "physical check",
+          "applicableGrades": [
+            "Detailed",
+            "Close"
+          ]
+        },
+        {
+          "label": "visual check",
+          "applicableGrades": [
+            "Visual"
+          ]
+        }
+      ]
+    },
+    {
+      "section": "Apparatus",
+      "itemNumber": 10,
+      "text": "Cable glands have corrected EX rating identified (d or de) & installed correctly",
+      "protectionApplicability": "Common check point",
+      "applicableGrades": [
+        "Detailed",
+        "Close",
+        "Visual"
+      ],
+      "sourcePage": 1,
+      "subChecks": []
+    },
+    {
+      "section": "Apparatus",
+      "itemNumber": 11,
+      "text": "Lamp rating, type and position are correct",
+      "protectionApplicability": "Common check point",
+      "applicableGrades": [
+        "Detailed"
+      ],
+      "sourcePage": 1,
+      "subChecks": []
+    },
+    {
+      "section": "Apparatus",
+      "itemNumber": 12,
+      "text": "Electrical connections are correct (tight, clearances, creepage)",
+      "protectionApplicability": "Common check point",
+      "applicableGrades": [
+        "Detailed"
+      ],
+      "sourcePage": 1,
+      "subChecks": []
+    },
+    {
+      "section": "Apparatus",
+      "itemNumber": 13,
+      "text": "All unused cores are terminated / earthed at one end",
+      "protectionApplicability": "Common check point",
+      "applicableGrades": [
+        "Detailed"
+      ],
+      "sourcePage": 1,
+      "subChecks": []
+    },
+    {
+      "section": "Apparatus",
+      "itemNumber": 14,
+      "text": "Motor fans and coupling have sufficient clearance to enclosure and/or covers, not rubbing. Cover installed for protection against dropped object.",
+      "protectionApplicability": "Common check point",
+      "applicableGrades": [
+        "Detailed",
+        "Close",
+        "Visual"
+      ],
+      "sourcePage": 1,
+      "subChecks": []
+    },
+    {
+      "section": "Apparatus",
+      "itemNumber": 15,
+      "text": "Breathing and draining devices are satisfactory",
+      "protectionApplicability": "Common check point",
+      "applicableGrades": [
+        "Detailed",
+        "Close"
+      ],
+      "sourcePage": 1,
+      "subChecks": []
+    },
+    {
+      "section": "Apparatus",
+      "itemNumber": 16,
+      "text": "Flange faces are clean and undamaged and gaskets, if any, are satisfactory",
+      "protectionApplicability": "Ex 'd' only",
+      "applicableGrades": [
+        "Detailed"
+      ],
+      "sourcePage": 1,
+      "subChecks": []
+    },
+    {
+      "section": "Apparatus",
+      "itemNumber": 17,
+      "text": "Flange gap dimensions are within maximal values permitted",
+      "protectionApplicability": "Ex 'd' only",
+      "applicableGrades": [
+        "Detailed",
+        "Close"
+      ],
+      "sourcePage": 1,
+      "subChecks": []
+    },
+    {
+      "section": "Apparatus",
+      "itemNumber": 18,
+      "text": "Condition of enclosure gaskets is satisfactory",
+      "protectionApplicability": "Ex 'e' 'n' only",
+      "applicableGrades": [
+        "Detailed"
+      ],
+      "sourcePage": 1,
+      "subChecks": []
+    },
+    {
+      "section": "Apparatus",
+      "itemNumber": 19,
+      "text": "Enclosed-break and hermetically sealed devices are undamaged",
+      "protectionApplicability": "Ex 'n' only",
+      "applicableGrades": [
+        "Detailed"
+      ],
+      "sourcePage": 1,
+      "subChecks": []
+    },
+    {
+      "section": "Apparatus",
+      "itemNumber": 20,
+      "text": "Restricted breathing enclosure is satisfactory",
+      "protectionApplicability": "Ex 'n' only",
+      "applicableGrades": [
+        "Detailed"
+      ],
+      "sourcePage": 1,
+      "subChecks": []
+    },
+    {
+      "section": "Apparatus",
+      "itemNumber": 21,
+      "text": "Apparatus installed is that specified in the documentation – fixed apparatus only",
+      "protectionApplicability": "Ex 'i' only",
+      "applicableGrades": [
+        "Detailed",
+        "Close"
+      ],
+      "sourcePage": 1,
+      "subChecks": []
+    },
+    {
+      "section": "Apparatus",
+      "itemNumber": 22,
+      "text": "Safety barrier units, relays and other energy limiting devices are of the approved type, installed in accordance with the certification requirements and securely earthed where required",
+      "protectionApplicability": "Ex 'i' only",
+      "applicableGrades": [
+        "Detailed",
+        "Close",
+        "Visual"
+      ],
+      "sourcePage": 1,
+      "subChecks": []
+    },
+    {
+      "section": "Apparatus",
+      "itemNumber": 23,
+      "text": "Printed circuit boards are clean and undamaged",
+      "protectionApplicability": "Ex 'i' only",
+      "applicableGrades": [
+        "Detailed"
+      ],
+      "sourcePage": 1,
+      "subChecks": []
+    },
+    {
+      "section": "Installation",
+      "itemNumber": 1,
+      "text": "Type of cable is appropriate and installed in accordance documentation",
+      "protectionApplicability": "Common check point",
+      "applicableGrades": [
+        "Detailed"
+      ],
+      "sourcePage": 1,
+      "subChecks": []
+    },
+    {
+      "section": "Installation",
+      "itemNumber": 2,
+      "text": "There is no obvious damage to cables / conduit.",
+      "protectionApplicability": "Common check point",
+      "applicableGrades": [
+        "Detailed",
+        "Close",
+        "Visual"
+      ],
+      "sourcePage": 1,
+      "subChecks": []
+    },
+    {
+      "section": "Installation",
+      "itemNumber": 3,
+      "text": "Sealing of trunking, ducts, pipes and/or conduits is satisfactory",
+      "protectionApplicability": "Common check point",
+      "applicableGrades": [
+        "Detailed",
+        "Close",
+        "Visual"
+      ],
+      "sourcePage": 1,
+      "subChecks": []
+    },
+    {
+      "section": "Installation",
+      "itemNumber": 4,
+      "text": "Integrity of conduit system and interface with mixed system is maintained",
+      "protectionApplicability": "Common check point",
+      "applicableGrades": [
+        "Detailed"
+      ],
+      "sourcePage": 1,
+      "subChecks": []
+    },
+    {
+      "section": "Installation",
+      "itemNumber": 5,
+      "text": "Stopping boxes and cable boxes are correctly filled",
+      "protectionApplicability": "Ex 'd' only",
+      "applicableGrades": [
+        "Detailed"
+      ],
+      "sourcePage": 1,
+      "subChecks": []
+    },
+    {
+      "section": "Installation",
+      "itemNumber": 6,
+      "text": "Obstructions adjacent to flameproof flanged joints are in accordance with IEC 60079-14",
+      "protectionApplicability": "Ex 'd' only",
+      "applicableGrades": [
+        "Detailed",
+        "Close",
+        "Visual"
+      ],
+      "sourcePage": 1,
+      "subChecks": []
+    },
+    {
+      "section": "Installation",
+      "itemNumber": 7,
+      "text": "Earthing connections, including any supplementary earthing bonding connections are satisfactory (for example connections are tight and conductors are of sufficient cross-section) – physical check\n–visual check",
+      "protectionApplicability": "Common check point",
+      "applicableGrades": [
+        "Detailed",
+        "Close",
+        "Visual"
+      ],
+      "sourcePage": 2,
+      "subChecks": [
+        {
+          "label": "physical check",
+          "applicableGrades": [
+            "Detailed"
+          ]
+        },
+        {
+          "label": "visual check",
+          "applicableGrades": [
+            "Close",
+            "Visual"
+          ]
+        }
+      ]
+    },
+    {
+      "section": "Installation",
+      "itemNumber": 8,
+      "text": "Fault loop impedance (TN systems) or earthing resistance (IT systems) is satisfactory",
+      "protectionApplicability": "Common check point",
+      "applicableGrades": [
+        "Detailed"
+      ],
+      "sourcePage": 2,
+      "subChecks": []
+    },
+    {
+      "section": "Installation",
+      "itemNumber": 9,
+      "text": "Insulation resistance is satisfactory (sight test document)",
+      "protectionApplicability": "Common check point",
+      "applicableGrades": [
+        "Detailed"
+      ],
+      "sourcePage": 2,
+      "subChecks": []
+    },
+    {
+      "section": "Installation",
+      "itemNumber": 10,
+      "text": "Automatic electrical protective devices operate within permitted limits and set correctly",
+      "protectionApplicability": "Common check point",
+      "applicableGrades": [
+        "Detailed"
+      ],
+      "sourcePage": 2,
+      "subChecks": []
+    },
+    {
+      "section": "Installation",
+      "itemNumber": 11,
+      "text": "Automatic electrical protective devices are set correctly (auto-reset not possible)",
+      "protectionApplicability": "Common check point",
+      "applicableGrades": [
+        "Detailed"
+      ],
+      "sourcePage": 2,
+      "subChecks": []
+    },
+    {
+      "section": "Installation",
+      "itemNumber": 12,
+      "text": "Special conditions of use (if applicable) are complied with",
+      "protectionApplicability": "Common check point",
+      "applicableGrades": [
+        "Detailed"
+      ],
+      "sourcePage": 2,
+      "subChecks": []
+    },
+    {
+      "section": "Installation",
+      "itemNumber": 13,
+      "text": "Cables not in use are correctly terminated",
+      "protectionApplicability": "Common check point",
+      "applicableGrades": [
+        "Detailed"
+      ],
+      "sourcePage": 2,
+      "subChecks": []
+    },
+    {
+      "section": "Installation",
+      "itemNumber": 14,
+      "text": "Variable voltage/frequency installation in accordance with documentation",
+      "protectionApplicability": "Common check point",
+      "applicableGrades": [
+        "Detailed",
+        "Close",
+        "Visual"
+      ],
+      "sourcePage": 2,
+      "subChecks": []
+    },
+    {
+      "section": "Installation",
+      "itemNumber": 15,
+      "text": "All equipment is EX e certified (including components within enclosure) or EX n certified",
+      "protectionApplicability": "Ex 'e' 'n' only",
+      "applicableGrades": [
+        "Detailed"
+      ],
+      "sourcePage": 2,
+      "subChecks": []
+    },
+    {
+      "section": "Installation",
+      "itemNumber": 16,
+      "text": "Bridging links do not reduce creepage / clearance and are not allowed",
+      "protectionApplicability": "Ex 'e' 'n' only",
+      "applicableGrades": [
+        "Detailed"
+      ],
+      "sourcePage": 2,
+      "subChecks": []
+    },
+    {
+      "section": "Installation",
+      "itemNumber": 17,
+      "text": "Power conductors are not bunched together causing possible hot spots",
+      "protectionApplicability": "Ex 'e' 'n' only",
+      "applicableGrades": [
+        "Detailed"
+      ],
+      "sourcePage": 2,
+      "subChecks": []
+    },
+    {
+      "section": "Installation",
+      "itemNumber": 18,
+      "text": "Unused terminals are tightened down",
+      "protectionApplicability": "Ex 'e' 'n' only",
+      "applicableGrades": [
+        "Detailed"
+      ],
+      "sourcePage": 2,
+      "subChecks": []
+    },
+    {
+      "section": "Installation",
+      "itemNumber": 19,
+      "text": "Cable screens are earthed in accordance with the documentation (usually isolated on field side)",
+      "protectionApplicability": "Ex 'i' only",
+      "applicableGrades": [
+        "Detailed",
+        "Close",
+        "Visual"
+      ],
+      "sourcePage": 2,
+      "subChecks": []
+    },
+    {
+      "section": "Installation",
+      "itemNumber": 20,
+      "text": "Equipment has adequate circuit identification for 'IS' installation",
+      "protectionApplicability": "Ex 'i' only",
+      "applicableGrades": [
+        "Detailed",
+        "Close",
+        "Visual"
+      ],
+      "sourcePage": 2,
+      "subChecks": []
+    },
+    {
+      "section": "Installation",
+      "itemNumber": 21,
+      "text": "Point-to-point connections are all correct",
+      "protectionApplicability": "Ex 'i' only",
+      "applicableGrades": [
+        "Detailed"
+      ],
+      "sourcePage": 2,
+      "subChecks": []
+    },
+    {
+      "section": "Installation",
+      "itemNumber": 22,
+      "text": "Earth connections maintain the integrity of the type of protection (min2x1.5/4mm/Isol.)",
+      "protectionApplicability": "Ex 'i' only",
+      "applicableGrades": [
+        "Detailed",
+        "Close",
+        "Visual"
+      ],
+      "sourcePage": 2,
+      "subChecks": []
+    },
+    {
+      "section": "Installation",
+      "itemNumber": 23,
+      "text": "The intrinsically safe circuit is isolated from earth or earthed at one point only (refer to documentation)",
+      "protectionApplicability": "Ex 'i' only",
+      "applicableGrades": [
+        "Detailed"
+      ],
+      "sourcePage": 2,
+      "subChecks": []
+    },
+    {
+      "section": "Installation",
+      "itemNumber": 24,
+      "text": "Separation is maintained between intrinsically safe and non-intrinsically safe circuits in common distribution boxes or relay cubicles",
+      "protectionApplicability": "Ex 'i' only",
+      "applicableGrades": [
+        "Detailed"
+      ],
+      "sourcePage": 2,
+      "subChecks": []
+    },
+    {
+      "section": "Installation",
+      "itemNumber": 25,
+      "text": "As applicable, short-circuit protection of the power supply is in accordance with the documentation",
+      "protectionApplicability": "Ex 'i' only",
+      "applicableGrades": [
+        "Detailed"
+      ],
+      "sourcePage": 2,
+      "subChecks": []
+    },
+    {
+      "section": "Installation",
+      "itemNumber": 26,
+      "text": "Barrier Details: Model no:……………………………………… Cert No:…………………………………………",
+      "protectionApplicability": "Ex 'i' only",
+      "applicableGrades": [
+        "Detailed"
+      ],
+      "sourcePage": 2,
+      "subChecks": [],
+      "transcriptionNote": "Unmapped PDF dot-leader glyphs normalized to typographic dot leaders; wording preserved."
+    },
+    {
+      "section": "Installation",
+      "itemNumber": 27,
+      "text": "Protective gas inlet temperature is below maximum specified",
+      "protectionApplicability": "Ex 'p'",
+      "applicableGrades": [
+        "Detailed"
+      ],
+      "sourcePage": 2,
+      "subChecks": []
+    },
+    {
+      "section": "Installation",
+      "itemNumber": 28,
+      "text": "Ducts, pipes and enclosures are in good condition",
+      "protectionApplicability": "Ex 'p'",
+      "applicableGrades": [
+        "Detailed",
+        "Close",
+        "Visual"
+      ],
+      "sourcePage": 2,
+      "subChecks": []
+    },
+    {
+      "section": "Installation",
+      "itemNumber": 29,
+      "text": "Protective gas is substantially free from contaminants",
+      "protectionApplicability": "Ex 'p'",
+      "applicableGrades": [
+        "Detailed",
+        "Close",
+        "Visual"
+      ],
+      "sourcePage": 2,
+      "subChecks": []
+    },
+    {
+      "section": "Installation",
+      "itemNumber": 30,
+      "text": "Protective gas pressure and/or flow is adequate and within accepted range",
+      "protectionApplicability": "Ex 'p'",
+      "applicableGrades": [
+        "Detailed",
+        "Close",
+        "Visual"
+      ],
+      "sourcePage": 2,
+      "subChecks": []
+    },
+    {
+      "section": "Installation",
+      "itemNumber": 31,
+      "text": "Pressure and/or flow indicators, timer, alarms and trip interlocks function correctly",
+      "protectionApplicability": "Ex 'p'",
+      "applicableGrades": [
+        "Detailed"
+      ],
+      "sourcePage": 2,
+      "subChecks": []
+    },
+    {
+      "section": "Installation",
+      "itemNumber": 32,
+      "text": "Pre-energizing purge period is adequate",
+      "protectionApplicability": "Ex 'p'",
+      "applicableGrades": [
+        "Detailed"
+      ],
+      "sourcePage": 2,
+      "subChecks": []
+    },
+    {
+      "section": "Installation",
+      "itemNumber": 33,
+      "text": "Conditions of spark and particle barriers of ducts for exhausting the gas in hazardous area are satisfactory",
+      "protectionApplicability": "Ex 'p'",
+      "applicableGrades": [
+        "Detailed",
+        "Close"
+      ],
+      "sourcePage": 2,
+      "subChecks": []
+    },
+    {
+      "section": "Environment",
+      "itemNumber": 1,
+      "text": "Apparatus is adequately protected against corrosion, weather, vibration and other adverse factors",
+      "protectionApplicability": "Common check point",
+      "applicableGrades": [
+        "Detailed",
+        "Close",
+        "Visual"
+      ],
+      "sourcePage": 2,
+      "subChecks": []
+    },
+    {
+      "section": "Environment",
+      "itemNumber": 2,
+      "text": "No undue accumulation of dust and dirt",
+      "protectionApplicability": "Common check point",
+      "applicableGrades": [
+        "Detailed",
+        "Close",
+        "Visual"
+      ],
+      "sourcePage": 2,
+      "subChecks": []
+    },
+    {
+      "section": "Environment",
+      "itemNumber": 3,
+      "text": "Electrical insulation is clean and dry",
+      "protectionApplicability": "Ex 'e' 'n' only",
+      "applicableGrades": [
+        "Detailed"
+      ],
+      "sourcePage": 2,
+      "subChecks": []
+    }
+  ]
+}

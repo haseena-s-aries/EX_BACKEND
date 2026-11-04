@@ -75,7 +75,30 @@ public record UpsertAreaEquipmentRequest(
     [StringLength(200)] string? Manufacturer,
     [StringLength(500)] string? ProtectionDetails,
     [StringLength(150)] string? CertificateNumber,
-    [StringLength(100)] string? RfidTagUid = null);
+    [StringLength(100)] string? RfidTagUid = null,
+    bool IsPlacedOnLayout = true,
+    [StringLength(1000)] string? Description = null,
+    [StringLength(150)] string? Model = null,
+    [StringLength(150)] string? SerialNumber = null,
+    [StringLength(150)] string? ExProtectionType = null,
+    [StringLength(100)] string? GasGroup = null,
+    [StringLength(100)] string? TemperatureClass = null,
+    [StringLength(100)] string? HazardousAreaZone = null,
+    [StringLength(100)] string? AmbientTemperatureRange = null,
+    [StringLength(100)] string? IpRating = null,
+    [StringLength(250)] string? NotifiedBody = null,
+    [StringLength(1000)] string? SpecialConditionsOfUse = null,
+    [StringLength(50)] string? RfidIdentificationMethod = null,
+    Guid? ClientEquipmentId = null);
+
+public record RecordEquipmentScanEventRequest(
+    Guid ClientEventId,
+    [Required, StringLength(200, MinimumLength = 1)] string Identifier,
+    [Required, StringLength(20)] string Technology,
+    [Required, StringLength(20)] string MatchResult,
+    Guid? EquipmentId = null,
+    DateTimeOffset? ScannedAt = null,
+    [StringLength(1000)] string? Discrepancy = null);
 
 public record AreaEquipmentResponse(
     Guid Id,
@@ -100,7 +123,25 @@ public record AreaEquipmentResponse(
     Guid? InspectionId = null,
     QcReviewStatus? QcReviewStatus = null,
     string? QcComments = null,
-    QcSeverity? QcSeverity = null);
+    QcSeverity? QcSeverity = null,
+    bool IsPlacedOnLayout = true,
+    string? Description = null,
+    string? Model = null,
+    string? SerialNumber = null,
+    string? ExProtectionType = null,
+    string? GasGroup = null,
+    string? TemperatureClass = null,
+    string? HazardousAreaZone = null,
+    string? AmbientTemperatureRange = null,
+    string? IpRating = null,
+    string? NotifiedBody = null,
+    string? SpecialConditionsOfUse = null,
+    string? RfidIdentificationMethod = null,
+    string RegistrationStatus = "Verified");
+
+public record ReviewEquipmentRegistrationRequest(
+    [Required] string Decision,
+    [StringLength(2000)] string? Comments = null);
 
 public record SurveyorEquipmentDetailsResponse(
     Guid Id,
@@ -131,7 +172,10 @@ public record SurveyorChecklistItemResponse(
     InspectionType InspectionType,
     string Text,
     int SortOrder,
-    bool IsRequired);
+    bool IsRequired,
+    string? SectionCode = null, string? ApplicableProtectionTypes = null,
+    int? SourceItemNumber = null, string? SourceItemReference = null,
+    string? ApplicableGrades = null, string? SubChecksJson = null);
 
 public record SaveInspectionAnswerRequest(
     [Required] Guid ChecklistItemId,
@@ -152,7 +196,10 @@ public record SurveyorInspectionAnswerResponse(
     int SortOrder,
     bool IsRequired,
     bool IsChecked,
-    string? Remarks);
+    string? Remarks,
+    string? SectionCode = null, string? ApplicableProtectionTypes = null,
+    int? SourceItemNumber = null, string? SourceItemReference = null,
+    string? ApplicableGrades = null, string? SubChecksJson = null);
 
 public record SurveyorInspectionPhotoResponse(
     Guid Id,
@@ -179,4 +226,15 @@ public class UploadInspectionPhotosRequest
 {
     [Required]
     public List<IFormFile> Files { get; set; } = [];
+}
+
+public class UploadEquipmentPhotosRequest
+{
+    [Required, StringLength(40)]
+    public string Role { get; set; } = "Additional";
+
+    [Required]
+    public List<IFormFile> Files { get; set; } = [];
+
+    public Guid? ClientPhotoId { get; set; }
 }

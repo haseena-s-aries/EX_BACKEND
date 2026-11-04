@@ -123,6 +123,9 @@ public class ProjectController(
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<ProjectResponse>> GetProject(Guid id, CancellationToken cancellationToken)
     {
+        // Old bookmarked IDs must return 404 before loading the project graph.
+        if (!await AccessibleProjects().AnyAsync(x => x.Id == id, cancellationToken))
+            return NotFound(new { error = "Project was not found." });
         var project = await AccessibleProjects()
             .Include(x => x.OurCompany)
             .Include(x => x.Areas)

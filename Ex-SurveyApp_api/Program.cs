@@ -126,16 +126,34 @@ builder.Services.AddRateLimiter(options =>
             AutoReplenishment = true
         }));
 });
-builder.Services.AddDbContext<SurveyDbContext>(options =>
-{
-    if (builder.Environment.IsDevelopment() && builder.Configuration.GetValue<bool>("UseInMemoryDatabase"))
-        options.UseInMemoryDatabase("ExSurveyDevelopment");
-    else
-        options.UseSqlServer(builder.Configuration.GetConnectionString("SurveyDatabase")
-            ?? throw new InvalidOperationException("Connection string 'SurveyDatabase' is required."));
-});
+// SQL Server only; runtime and EF tools share the same resolver.
+var databaseConnection = SurveyDatabaseConfiguration.Resolve(builder.Configuration, builder.Environment.IsDevelopment());
+builder.Services.AddDbContext<SurveyDbContext>(options => options.UseSqlServer(databaseConnection));
+builder.Services.AddProblemDetails();
 
 var app = builder.Build();
+var databaseTarget = new Microsoft.Data.SqlClient.SqlConnectionStringBuilder(databaseConnection);
+app.Logger.LogInformation("Database provider: SQL Server; server: {Server}; database: {Database}",
+    databaseTarget.DataSource, databaseTarget.InitialCatalog);
+
+// Migrations must complete before any account or checklist queries.
+if (app.Environment.IsDevelopment())
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<SurveyDbContext>();
+    try
+    {
+        await db.Database.MigrateAsync();
+        await DevelopmentDatabaseInitializer.SeedAdminIfEmptyAsync(db,
+            scope.ServiceProvider.GetRequiredService<IPasswordHasher<User>>(), app.Configuration);
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogCritical(ex, "Development database initialization failed for {Server}/{Database}",
+            databaseTarget.DataSource, databaseTarget.InitialCatalog);
+        throw;
+    }
+}
 
 var adminEmail = app.Configuration["BootstrapAdmin:Email"];
 var adminPassword = app.Configuration["BootstrapAdmin:Password"];
@@ -159,7 +177,7 @@ if ((!string.IsNullOrWhiteSpace(adminEmail) && !string.IsNullOrWhiteSpace(adminP
             managerDisplayName, UserRole.Manager);
 }
 
-// Optional local demo accounts. Credentials are supplied through User Secrets/environment only.
+// Optional local demo accounts. Create missing fixtures; preserve later account edits.
 if (app.Environment.IsDevelopment() && app.Configuration.GetValue<bool>("DevelopmentAccounts:Enabled"))
 {
     var accounts = new[]
@@ -186,91 +204,30 @@ if (app.Environment.IsDevelopment() && app.Configuration.GetValue<bool>("Develop
     var db = scope.ServiceProvider.GetRequiredService<SurveyDbContext>();
     var passwordHasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher<User>>();
     foreach (var account in accounts)
-        await BootstrapAccountProvisioner.ProvisionAsync(db, passwordHasher, account.Email!, account.Password!,
+    {
+        var result = await BootstrapAccountProvisioner.CreateDevelopmentAccountIfMissingAsync(db, passwordHasher, account.Email!, account.Password!,
             account.DisplayName, account.Role);
+        if (result == DevelopmentAccountSeedResult.RoleConflict)
+            app.Logger.LogWarning(
+                "Skipping {Section}: email {Email} already belongs to another role. Existing account was preserved. Use a different demo email or disable DevelopmentAccounts:Enabled.",
+                account.ConfigSection, account.Email);
+    }
 }
 
 // The explicitly isolated integration profile supplies its own labeled synthetic checklist fixture.
-// Keep legacy startup seeding behavior unchanged in other Development and Production environments.
+// Other environments add missing defaults while preserving existing checklist versions.
 if (!(app.Environment.IsDevelopment() &&
       app.Configuration.GetValue<bool>("DevelopmentChecklistSeed:DisableStartupSeed")))
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<SurveyDbContext>();
-    var checklistSeed = new Dictionary<InspectionType, string[]>
-    {
-        [InspectionType.Visual] =
-        [
-            "Enclosure is intact with no cracks or damage",
-            "Gaskets are in good condition",
-            "No excessive corrosion on enclosure",
-            "Certification and rating plate is legible"
-        ],
-        [InspectionType.Close] =
-        [
-            "All bolts and fasteners are tight",
-            "Cable entries are properly sealed",
-            "Covers and lids properly fitted",
-            "Grounding/bonding connections intact"
-        ],
-        [InspectionType.Detailed] =
-        [
-            "No unauthorized modifications",
-            "Flame paths clean and undamaged",
-            "No excessive paint buildup",
-            "Internal components properly mounted"
-        ]
-    };
-
-    foreach (var (inspectionType, questions) in checklistSeed)
-    {
-        var templateName = $"Default {inspectionType} Inspection";
-        var template = await db.ChecklistTemplates.SingleOrDefaultAsync(
-            x => x.Name == templateName && x.InspectionType == inspectionType);
-        if (template is null)
-        {
-            if (await db.ChecklistTemplates.AnyAsync(
-                    x => x.InspectionType == inspectionType && x.IsActive))
-                continue;
-
-            template = new ChecklistTemplate
-            {
-                Name = templateName,
-                InspectionType = inspectionType
-            };
-            db.ChecklistTemplates.Add(template);
-        }
-
-        var existingQuestions = await db.ChecklistQuestions
-            .Where(x => x.ChecklistTemplateId == template.Id)
-            .OrderBy(x => x.SortOrder)
-            .ToListAsync();
-        for (var index = 0; index < questions.Length; index++)
-        {
-            if (index < existingQuestions.Count)
-            {
-                existingQuestions[index].Text = questions[index];
-                existingQuestions[index].SortOrder = index + 1;
-                existingQuestions[index].IsRequired = true;
-            }
-            else
-            {
-                db.ChecklistQuestions.Add(new ChecklistQuestion
-                {
-                    ChecklistTemplateId = template.Id,
-                    Text = questions[index],
-                    SortOrder = index + 1
-                });
-            }
-        }
-    }
-
-    await db.SaveChangesAsync();
+    await DefaultChecklistSeeder.SeedAsync(db);
 }
 
 // Configure the HTTP request pipeline.
 // Enable Swagger in all environments.
 // Secure access to the API separately if required.
+app.UseExceptionHandler();
 app.UseSwagger();
 app.UseSwaggerUI(options =>
 {

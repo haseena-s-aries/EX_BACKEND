@@ -63,6 +63,8 @@ internal static class ProjectUploadHttpChecks
             Check(unauthenticated.StatusCode == HttpStatusCode.Unauthorized, "HTTP create requires authentication");
             Check(unauthenticated.Headers.TryGetValues("Access-Control-Allow-Origin", out var cors) && cors.Single() == "http://localhost:3000", "Authentication errors include CORS so browser can show session errors");
             client.DefaultRequestHeaders.Add("X-Test-Role", "Manager");
+            var missingProject = await client.GetAsync($"/api/projects/{Guid.NewGuid()}");
+            Check(missingProject.StatusCode == HttpStatusCode.NotFound, "An old or missing project ID returns HTTP 404");
             var companyResponse = await client.GetAsync("/api/companies");
             var companies = (await companyResponse.Content.ReadFromJsonAsync<CompanyResponse[]>(json))!;
             Check(companyResponse.StatusCode == HttpStatusCode.OK && companies.Length == 11 && companies.Select(c => c.Id).Distinct().Count() == 11, "Company master preserves all 11 workbook rows as separate options");

@@ -25,7 +25,7 @@ public sealed class EquipmentIdentificationController(SurveyDbContext db) : Cont
             .Select(x=>x.EquipmentId).ToListAsync(ct);
         if(technology is "HF_RFID" or "NFC")
         {
-            var legacy=await db.AreaEquipment.AsNoTracking().Where(x=>x.RfidTagUid!=null&&x.RfidTagUid.Trim().ToUpper()==normalized).Select(x=>x.Id).ToListAsync(ct);
+            var legacy=await db.AreaEquipment.AsNoTracking().Where(x=>x.RfidTagUid!=null&&x.RfidTagUid.Trim().Replace(":", "").Replace("-", "").Replace(" ", "").ToUpper()==normalized).Select(x=>x.Id).ToListAsync(ct);
             matches.AddRange(legacy);
         }
         var ids=matches.Distinct().ToArray();
@@ -68,6 +68,25 @@ public sealed class EquipmentIdentificationController(SurveyDbContext db) : Cont
     }
 
     [Authorize(Roles="Admin,Manager")]
+    [HttpPost("equipment/{equipmentId:guid}/registration-review")]
+    public async Task<IActionResult> ReviewRegistration(Guid equipmentId,ReviewEquipmentRegistrationRequest request,CancellationToken ct)
+    {
+        if(!User.IsInRole("Admin")&&!User.IsInRole("Manager"))return Forbid();
+        var decision=request.Decision?.Trim();
+        if(decision is not ("Verified" or "ChangesRequested"))return BadRequest(new{error="Choose Verified or ChangesRequested."});
+        var equipment=await AccessibleEquipment(true).SingleOrDefaultAsync(x=>x.Id==equipmentId,ct);
+        if(equipment is null)return NotFound();
+        if(equipment.CreatedByUserId==Actor)return Conflict(new{error="The equipment registrant cannot verify their own registration."});
+        if(equipment.RegistrationStatus is not ("Submitted" or "ChangesRequested"))return Conflict(new{error="Only submitted or returned equipment registrations can be reviewed."});
+        if(decision=="ChangesRequested"&&string.IsNullOrWhiteSpace(request.Comments))return BadRequest(new{error="Add a reason when returning an equipment registration."});
+        equipment.RegistrationStatus=decision;
+        equipment.UpdatedAt=DateTimeOffset.UtcNow;
+        db.AuditLogs.Add(new AuditLog{EntityType="AreaEquipment",EntityId=equipment.Id,ActorId=Actor,Action="Equipment Registration Reviewed",Comments=$"Decision: {decision}. {request.Comments?.Trim()}".Trim()});
+        await db.SaveChangesAsync(ct);
+        return Ok(new{equipment.Id,equipment.ProjectId,equipment.RegistrationStatus,reviewedBy=Actor,reviewedAt=equipment.UpdatedAt,comments=request.Comments?.Trim()});
+    }
+
+    [Authorize(Roles="Admin,Manager")]
     [HttpPost("equipment/{equipmentId:guid}/tags")]
     public async Task<IActionResult> Assign(Guid equipmentId,AssignEquipmentTagRequest request,CancellationToken ct)
     {
@@ -78,7 +97,7 @@ public sealed class EquipmentIdentificationController(SurveyDbContext db) : Cont
         var equipment=await AccessibleEquipment(true).SingleOrDefaultAsync(x=>x.Id==equipmentId,ct);if(equipment is null)return NotFound();
         var duplicate=await db.EquipmentTagAssignments.AnyAsync(x=>x.IsActive&&x.NormalizedIdentifier==value&&x.EquipmentId!=equipmentId&&
             (technology=="QR"?x.Technology=="QR":x.Technology=="HF_RFID"||x.Technology=="NFC"),ct);
-        if(technology is "HF_RFID" or "NFC")duplicate|=await db.AreaEquipment.AnyAsync(x=>x.Id!=equipmentId&&x.RfidTagUid!=null&&x.RfidTagUid.Trim().ToUpper()==value,ct);
+        if(technology is "HF_RFID" or "NFC")duplicate|=await db.AreaEquipment.AnyAsync(x=>x.Id!=equipmentId&&x.RfidTagUid!=null&&x.RfidTagUid.Trim().Replace(":", "").Replace("-", "").Replace(" ", "").ToUpper()==value,ct);
         if(duplicate)return Conflict(new{error="This identifier is already active on another equipment item."});
         var old=await db.EquipmentTagAssignments.SingleOrDefaultAsync(x=>x.EquipmentId==equipmentId&&x.Technology==technology&&x.IsActive,ct);
         var legacy=technology=="HF_RFID"?equipment.RfidTagUid?.Trim().ToUpperInvariant():null;

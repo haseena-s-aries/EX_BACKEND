@@ -5,8 +5,27 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Ex_SurveyApp_api.Services;
 
+public enum DevelopmentAccountSeedResult { Created, AlreadyExists, RoleConflict }
+
 public static class BootstrapAccountProvisioner
 {
+    // Demo accounts are initial fixtures, not an authority over later user-management changes.
+    public static async Task<DevelopmentAccountSeedResult> CreateDevelopmentAccountIfMissingAsync(
+        SurveyDbContext db, IPasswordHasher<User> passwordHasher, string email, string password,
+        string displayName, UserRole role, CancellationToken cancellationToken = default)
+    {
+        var normalizedEmail = email.Trim().ToLowerInvariant();
+        var existing = await db.Users.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Email == normalizedEmail, cancellationToken);
+        if (existing is not null)
+            return existing.Role == role
+                ? DevelopmentAccountSeedResult.AlreadyExists
+                : DevelopmentAccountSeedResult.RoleConflict;
+
+        await ProvisionAsync(db, passwordHasher, email, password, displayName, role, cancellationToken);
+        return DevelopmentAccountSeedResult.Created;
+    }
+
     public static void ValidateConfiguration(string section, string? email, string? password)
     {
         if (string.IsNullOrWhiteSpace(email) != string.IsNullOrWhiteSpace(password))

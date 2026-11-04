@@ -128,6 +128,10 @@ public class ChecklistQuestion
     public bool NumericReadingRequired { get; set; }
     public string? SectionCode { get; set; }
     public string? ApplicableProtectionTypes { get; set; }
+    public string? SourceItemReference { get; set; }
+    public int? SourceItemNumber { get; set; }
+    public string? ApplicableGrades { get; set; }
+    public string? SubChecksJson { get; set; }
     public bool RequireRemarkOnFail { get; set; }
     public string? ResponseScaleCode { get; set; }
 }
@@ -176,7 +180,10 @@ public class SurveyFile
     public Guid? SurveySessionId { get; set; }
     public Guid? AreaId { get; set; }
     public Guid? EquipmentId { get; set; }
+    public Guid? ProjectId { get; set; }
+    public Guid? AreaEquipmentId { get; set; }
     public Guid? FindingId { get; set; }
+    public string? EquipmentPhotoRole { get; set; }
     public FileCategory Category { get; set; }
     public required string FileName { get; set; }
     public required string StorageKey { get; set; }

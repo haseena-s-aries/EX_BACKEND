@@ -30,10 +30,16 @@ internal static class HazardousAreaPlanChecks
                 using (content.Stream) { using var copy = new MemoryStream(); await content.Stream.CopyToAsync(copy); Check(copy.ToArray().SequenceEqual(item.Item3), "Original " + item.Item1 + " bytes are preserved"); }
                 Check(content.ContentType == item.Item2, "Download MIME is derived from validated extension");
             }
-            foreach (var item in new[] {("plan.png", "image/png", jpeg), ("plan.pdf", "image/jpeg", pdf), ("plan.jpg", "image/jpeg", pdf), ("plan.pdf", "application/pdf", jpeg), ("plan.exe", "application/pdf", pdf)})
+            foreach (var item in new[] {
+                (Name: "plan.png", Mime: "image/png", Bytes: jpeg, Message: "The file content does not match an allowed PDF or image type."),
+                (Name: "plan.pdf", Mime: "image/jpeg", Bytes: pdf, Message: "Only JPG, JPEG, PNG and PDF files are allowed."),
+                (Name: "plan.jpg", Mime: "image/jpeg", Bytes: pdf, Message: "The file content does not match an allowed PDF or image type."),
+                (Name: "plan.pdf", Mime: "application/pdf", Bytes: jpeg, Message: "The file content does not match an allowed PDF or image type."),
+                (Name: "plan.exe", Mime: "application/pdf", Bytes: pdf, Message: "Only JPG, JPEG, PNG and PDF files are allowed.")
+            })
             {
-                try { await storage.SaveHazardousAreaPlanAsync(File(item.Item1, item.Item2, item.Item3), Guid.NewGuid(), default); throw new Exception("Accepted unsupported plan"); }
-                catch (ProjectPhotoValidationException ex) { Check(ex.Message == "Only JPG, JPEG, PNG and PDF files are allowed.", "Reject extension/MIME/content mismatch: " + item.Item1); }
+                try { await storage.SaveHazardousAreaPlanAsync(File(item.Name, item.Mime, item.Bytes), Guid.NewGuid(), default); throw new Exception("Accepted unsupported plan"); }
+                catch (ProjectPhotoValidationException ex) { Check(ex.Message == item.Message, "Reject extension/MIME/content mismatch: " + item.Name); }
             }
             var safe = await storage.SaveHazardousAreaPlanAsync(File("../../unsafe.pdf", "application/pdf", pdf), Guid.NewGuid(), default);
             Check(safe.OriginalFileName == "unsafe.pdf" && !safe.RelativePath.Contains(".."), "Generated storage path prevents filename traversal");

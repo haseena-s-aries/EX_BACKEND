@@ -61,6 +61,7 @@ public class SurveyDbContext(DbContextOptions<SurveyDbContext> options) : DbCont
     public DbSet<OfflinePhotoSyncReceipt> OfflinePhotoSyncReceipts => Set<OfflinePhotoSyncReceipt>();
     public DbSet<EquipmentTagAssignment> EquipmentTagAssignments => Set<EquipmentTagAssignment>();
     public DbSet<EquipmentTagHistory> EquipmentTagHistory => Set<EquipmentTagHistory>();
+    public DbSet<EquipmentScanEvent> EquipmentScanEvents => Set<EquipmentScanEvent>();
     public DbSet<GeneratedReportArtifact> GeneratedReportArtifacts => Set<GeneratedReportArtifact>();
     public DbSet<EquipmentReferenceDocument> EquipmentReferenceDocuments => Set<EquipmentReferenceDocument>();
     public DbSet<EquipmentDocumentRequirementPolicy> EquipmentDocumentRequirementPolicies => Set<EquipmentDocumentRequirementPolicy>();
@@ -143,6 +144,17 @@ public class SurveyDbContext(DbContextOptions<SurveyDbContext> options) : DbCont
             .HasForeignKey(x => x.ManagerId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<AuditLog>().Property(x => x.Comments).HasMaxLength(4000);
         modelBuilder.Entity<AuditLog>().HasIndex(x => new { x.EntityId, x.OccurredAt });
+        var scanEvent = modelBuilder.Entity<EquipmentScanEvent>();
+        scanEvent.Property(x => x.Identifier).HasMaxLength(200).IsRequired();
+        scanEvent.Property(x => x.Technology).HasMaxLength(20).IsRequired();
+        scanEvent.Property(x => x.MatchResult).HasMaxLength(20).IsRequired();
+        scanEvent.Property(x => x.Discrepancy).HasMaxLength(1000);
+        scanEvent.HasIndex(x => x.ClientEventId).IsUnique();
+        scanEvent.HasIndex(x => new { x.ProjectId, x.AreaId, x.ScannedAt });
+        scanEvent.HasOne<Project>().WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Restrict);
+        scanEvent.HasOne<ProjectArea>().WithMany().HasForeignKey(x => x.AreaId).OnDelete(DeleteBehavior.Restrict);
+        scanEvent.HasOne<AreaEquipment>().WithMany().HasForeignKey(x => x.EquipmentId).OnDelete(DeleteBehavior.Restrict);
+        scanEvent.HasOne<User>().WithMany().HasForeignKey(x => x.ActorUserId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<User>()
             .HasOne<User>()
             .WithMany()
@@ -190,6 +202,7 @@ public class SurveyDbContext(DbContextOptions<SurveyDbContext> options) : DbCont
         modelBuilder.Entity<ProjectAreaPhoto>().HasOne<User>().WithMany().HasForeignKey(x => x.UploadedByUserId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<AreaEquipment>().Property(x => x.XPercent).HasPrecision(5, 2);
         modelBuilder.Entity<AreaEquipment>().Property(x => x.YPercent).HasPrecision(5, 2);
+        modelBuilder.Entity<AreaEquipment>().Property(x => x.IsPlacedOnLayout).HasDefaultValue(true);
         modelBuilder.Entity<AreaEquipment>().Property(x => x.TagNumber).HasMaxLength(100);
         modelBuilder.Entity<AreaEquipment>().Property(x => x.EquipmentCode).HasMaxLength(100);
         modelBuilder.Entity<AreaEquipment>().Property(x => x.RfidTagUid).HasMaxLength(100);
@@ -213,6 +226,7 @@ public class SurveyDbContext(DbContextOptions<SurveyDbContext> options) : DbCont
         modelBuilder.Entity<AreaEquipment>().Property(x => x.RfidIdentificationMethod).HasMaxLength(100);
         modelBuilder.Entity<AreaEquipment>().Property(x => x.NotApplicableFieldsJson).HasMaxLength(2000);
         modelBuilder.Entity<AreaEquipment>().Property(x => x.ReconciliationStatus).HasMaxLength(50).HasDefaultValue("Unreviewed");
+        modelBuilder.Entity<AreaEquipment>().Property(x => x.RegistrationStatus).HasMaxLength(30).HasDefaultValue("Verified");
         modelBuilder.Entity<ChecklistTemplate>().Property(x => x.DraftRevision).HasDefaultValue(1);
         modelBuilder.Entity<ChecklistTemplate>().Property(x => x.LifecycleStatus).HasDefaultValue(ChecklistLifecycleStatus.Draft);
         modelBuilder.Entity<ChecklistTemplate>().Property(x => x.StandardReference).HasMaxLength(100);
@@ -223,6 +237,11 @@ public class SurveyDbContext(DbContextOptions<SurveyDbContext> options) : DbCont
         modelBuilder.Entity<ChecklistQuestion>().Property(x => x.SectionCode).HasMaxLength(50);
         modelBuilder.Entity<ChecklistQuestion>().Property(x => x.ApplicableProtectionTypes).HasMaxLength(1000);
         modelBuilder.Entity<ChecklistQuestion>().Property(x => x.ResponseScaleCode).HasMaxLength(50);
+        modelBuilder.Entity<ChecklistQuestion>().Property(x => x.SourceItemReference).HasMaxLength(200);
+        modelBuilder.Entity<ChecklistQuestion>().Property(x => x.ApplicableGrades).HasMaxLength(100);
+        modelBuilder.Entity<ChecklistQuestion>().Property(x => x.SubChecksJson).HasMaxLength(4000);
+        modelBuilder.Entity<ChecklistQuestion>().HasIndex(x => new { x.ChecklistTemplateId, x.SourceItemReference })
+            .IsUnique().HasFilter("[SourceItemReference] IS NOT NULL");
         modelBuilder.Entity<ChecklistTemplate>().HasOne<User>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<ChecklistTemplate>().HasOne<User>().WithMany().HasForeignKey(x => x.SubmittedByUserId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<ChecklistTemplate>().HasOne<User>().WithMany().HasForeignKey(x => x.ApprovedByUserId).OnDelete(DeleteBehavior.Restrict);
@@ -252,6 +271,10 @@ public class SurveyDbContext(DbContextOptions<SurveyDbContext> options) : DbCont
         modelBuilder.Entity<AreaEquipment>().HasOne<Project>().WithMany(x => x.EquipmentPins).HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<AreaEquipment>().HasOne<ProjectArea>().WithMany(x => x.EquipmentPins).HasForeignKey(x => x.AreaId).OnDelete(DeleteBehavior.Cascade);
         modelBuilder.Entity<AreaEquipment>().HasOne<User>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<SurveyFile>().Property(x => x.EquipmentPhotoRole).HasMaxLength(40);
+        modelBuilder.Entity<SurveyFile>().HasOne<AreaEquipment>().WithMany().HasForeignKey(x => x.AreaEquipmentId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<SurveyFile>().HasOne<Project>().WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<SurveyFile>().HasIndex(x => new { x.ProjectId, x.AreaEquipmentId, x.UploadedAt });
         modelBuilder.Entity<Job>().HasIndex(x => x.JobNumber).IsUnique();
         modelBuilder.Entity<Job>().HasOne<Client>().WithMany().HasForeignKey(x => x.ClientId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<JobAssignment>().HasIndex(x => new { x.JobId, x.UserId, x.Role }).IsUnique();
