@@ -88,7 +88,7 @@ public static class InspectionActivityRules
             throw new ArgumentException("A defect can only be raised against a failed checkpoint response.");
     }
 
-    public static void ValidateGradeChecklist(InspectionType requestedGrade, InspectionType checklistGrade)
+    public static void ValidateGradeChecklist(InspectionType requestedGrade, InspectionType? checklistGrade)
     {
         if (!Enum.IsDefined(requestedGrade) || requestedGrade != checklistGrade)
             throw new ArgumentException("Selected grade does not match the published checklist version.");

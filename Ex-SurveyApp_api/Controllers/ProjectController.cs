@@ -249,7 +249,9 @@ public class ProjectController(
         var inspections = await db.SurveySessions.Where(x => x.AreaEquipmentId.HasValue &&
             equipmentIds.Contains(x.AreaEquipmentId.Value)).ToListAsync(cancellationToken);
         var inspectionIds = inspections.Select(x => x.Id).ToArray();
-        var findings = await db.Findings.Where(x => inspectionIds.Contains(x.SurveySessionId)).ToListAsync(cancellationToken);
+        var findings = await db.Findings.Where(x =>
+            (x.SurveySessionId.HasValue && inspectionIds.Contains(x.SurveySessionId.Value)) ||
+            (x.RegisterEquipmentId.HasValue && equipmentIds.Contains(x.RegisterEquipmentId.Value))).ToListAsync(cancellationToken);
         var findingIds = findings.Select(x => x.Id).ToArray();
         var files = await db.Files.Where(x =>
             (x.SurveySessionId.HasValue && inspectionIds.Contains(x.SurveySessionId.Value)) ||
@@ -279,13 +281,15 @@ public class ProjectController(
     }
 
     [HttpPost("{projectId:guid}/areas")]
-    [Authorize(Roles = "Admin,Manager")]
+    [Authorize(Roles = "Admin,Manager,Surveyor")]
     public async Task<ActionResult<ProjectAreaResponse>> CreateArea(
         Guid projectId, UpsertProjectAreaRequest request, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(request.AreaName))
             return BadRequest(new { error = "AreaName is required." });
-        var project = await db.Projects.FirstOrDefaultAsync(x => x.Id == projectId, cancellationToken);
+        var isSurveyor = User.IsInRole(nameof(UserRole.Surveyor));
+        var actorId = CurrentUserId;
+        var project = await db.Projects.FirstOrDefaultAsync(x => x.Id == projectId && (!isSurveyor || x.AssignedSurveyorId == actorId), cancellationToken);
         if (project is null)
             return NotFound(new { error = "Project was not found." });
 

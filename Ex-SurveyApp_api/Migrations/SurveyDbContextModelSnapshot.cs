@@ -88,6 +88,9 @@ namespace Ex_SurveyApp_api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("AosdId")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<Guid>("CheckpointResponseRevisionId")
                         .HasColumnType("uniqueidentifier");
 
@@ -97,9 +100,18 @@ namespace Ex_SurveyApp_api.Migrations
                     b.Property<DateTimeOffset?>("DueAt")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<string>("FailedGrades")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("FaultCategory")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("FaultCode")
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("FollowUpRemarks")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<Guid>("InspectionActivityId")
                         .HasColumnType("uniqueidentifier");
@@ -115,6 +127,9 @@ namespace Ex_SurveyApp_api.Migrations
                     b.Property<string>("ProposedAction")
                         .HasMaxLength(4000)
                         .HasColumnType("nvarchar(4000)");
+
+                    b.Property<string>("RegisterRemarks")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<DateTimeOffset>("ReportedAt")
                         .ValueGeneratedOnAdd()
@@ -249,6 +264,10 @@ namespace Ex_SurveyApp_api.Migrations
                     b.Property<string>("EquipmentCode")
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("EquipmentName")
+                        .HasMaxLength(250)
+                        .HasColumnType("nvarchar(250)");
 
                     b.Property<string>("ExProtectionType")
                         .HasMaxLength(150)
@@ -662,7 +681,7 @@ namespace Ex_SurveyApp_api.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
 
-                    b.Property<int>("InspectionType")
+                    b.Property<int?>("InspectionType")
                         .HasColumnType("int");
 
                     b.Property<string>("ProtectionTypeSnapshot")
@@ -680,7 +699,7 @@ namespace Ex_SurveyApp_api.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("nvarchar(128)");
 
-                    b.Property<Guid>("SourceChecklistTemplateId")
+                    b.Property<Guid?>("SourceChecklistTemplateId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("StandardEdition")
@@ -700,7 +719,7 @@ namespace Ex_SurveyApp_api.Migrations
 
                     b.HasIndex("SourceChecklistTemplateId", "VersionNumber", "ProtectionTypeSnapshot")
                         .IsUnique()
-                        .HasFilter("[ProtectionTypeSnapshot] IS NOT NULL");
+                        .HasFilter("[SourceChecklistTemplateId] IS NOT NULL AND [ProtectionTypeSnapshot] IS NOT NULL");
 
                     b.ToTable("ChecklistVersionSnapshots", (string)null);
                 });
@@ -789,6 +808,12 @@ namespace Ex_SurveyApp_api.Migrations
 
                     b.Property<Guid>("CheckpointDefinitionSnapshotId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("GradeResultsJson")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("InspectionComment")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("MeasurementUnitSnapshot")
                         .HasMaxLength(40)
@@ -1326,6 +1351,24 @@ namespace Ex_SurveyApp_api.Migrations
                     b.ToTable("Equipment");
                 });
 
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.EquipmentChecklistCatalog", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("EquipmentChecklistCatalogs");
+                });
+
             modelBuilder.Entity("Ex_SurveyApp_api.Models.EquipmentDocumentRequirementPolicy", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1758,6 +1801,22 @@ namespace Ex_SurveyApp_api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("AdditionalRemarks")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<string>("AosdId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("FaultCategory")
+                        .HasMaxLength(1)
+                        .HasColumnType("nvarchar(1)");
+
+                    b.Property<string>("FaultCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
                     b.Property<string>("Observation")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -1765,16 +1824,36 @@ namespace Ex_SurveyApp_api.Migrations
                     b.Property<string>("Recommendation")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<Guid?>("RegisterAuthorId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("RegisterDate")
+                        .HasColumnType("date");
+
+                    b.Property<Guid?>("RegisterEquipmentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int?>("RegisterGrade")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Remarks")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
                     b.Property<string>("Severity")
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
-                    b.Property<Guid>("SurveySessionId")
+                    b.Property<Guid?>("SurveySessionId")
                         .HasColumnType("uniqueidentifier");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("RegisterAuthorId");
+
+                    b.HasIndex("RegisterEquipmentId");
 
                     b.HasIndex("SurveySessionId");
 
@@ -1863,7 +1942,10 @@ namespace Ex_SurveyApp_api.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset");
 
-                    b.Property<int>("Grade")
+                    b.Property<string>("EquipmentComments")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int?>("Grade")
                         .HasColumnType("int");
 
                     b.Property<Guid>("InspectionTaskId")
@@ -3674,8 +3756,7 @@ namespace Ex_SurveyApp_api.Migrations
                     b.HasOne("Ex_SurveyApp_api.Models.ChecklistTemplate", null)
                         .WithMany()
                         .HasForeignKey("SourceChecklistTemplateId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.CheckpointDefinitionSnapshot", b =>
@@ -3952,11 +4033,20 @@ namespace Ex_SurveyApp_api.Migrations
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.Finding", b =>
                 {
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("RegisterAuthorId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ex_SurveyApp_api.Models.AreaEquipment", null)
+                        .WithMany()
+                        .HasForeignKey("RegisterEquipmentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Ex_SurveyApp_api.Models.SurveySession", null)
                         .WithMany()
                         .HasForeignKey("SurveySessionId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Cascade);
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.GeneratedReportArtifact", b =>

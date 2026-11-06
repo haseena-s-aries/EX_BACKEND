@@ -51,6 +51,10 @@ public sealed record HaerRow(Guid EquipmentRecordId, int SequenceNo, string Equi
     string? LastInspectionResult, int OutstandingDefects, string? Inspector, string? QcStatus, string? RfidIdentificationMethod,
     string ReconciliationStatus, IReadOnlyDictionary<string, string> MetadataAvailability)
 {
+    public Guid AreaId { get; init; }
+    public string? ItemNumber { get; init; }
+    public string? EquipmentName { get; init; }
+    public string? Comments { get; init; }
     public IReadOnlyList<HaerInspectionHistory> InspectionHistory {get; init;} = [];
     public IReadOnlyList<string> OutstandingDefectStatuses {get; init;} = [];
 }
@@ -87,7 +91,7 @@ public sealed class ProjectReportData(SurveyDbContext db)
             .Select(r => new ReportRevisionEntry(r.Revision, r.GeneratedAt)).ToListAsync(ct);
         var answers = await (from a in db.SurveyAnswers.AsNoTracking() join q in db.ChecklistQuestions.AsNoTracking() on a.ChecklistQuestionId equals q.Id
             where sessionIds.Contains(a.SurveySessionId) orderby q.SortOrder select new {a.SurveySessionId, q.ChecklistTemplateId, q.SortOrder, q.Text, a.Value, a.Comment}).ToListAsync(ct);
-        var findings = await db.Findings.AsNoTracking().Where(f => sessionIds.Contains(f.SurveySessionId)).OrderBy(f => f.Id).ToListAsync(ct);
+        var findings = await db.Findings.AsNoTracking().Where(f => f.SurveySessionId.HasValue && sessionIds.Contains(f.SurveySessionId.Value)).OrderBy(f => f.Id).ToListAsync(ct);
         var findingIds = findings.Select(f => f.Id).ToArray();
         var files = await db.Files.AsNoTracking().Where(f =>
             ((f.SurveySessionId.HasValue && sessionIds.Contains(f.SurveySessionId.Value)) ||
@@ -159,19 +163,23 @@ public sealed class ProjectReportData(SurveyDbContext db)
             .ToDictionaryAsync(u => u.Id, u => u.DisplayName, ct);
         var savedAnswers = await db.SurveyAnswers.AsNoTracking().Where(a => sessionIds.Contains(a.SurveySessionId)).Select(a => new {a.SurveySessionId, a.Value}).ToListAsync(ct);
         var legacyAnswersBySession = savedAnswers.GroupBy(x => x.SurveySessionId).ToDictionary(x => x.Key, x => x.Select(a => a.Value).ToArray());
-        var legacyFindings = await (from f in db.Findings.AsNoTracking() join s in db.SurveySessions.AsNoTracking() on f.SurveySessionId equals s.Id
-                                    where s.AreaEquipmentId.HasValue && equipmentIds.Contains(s.AreaEquipmentId.Value) && f.Status != FindingStatus.Closed && f.Status != FindingStatus.Verified
-                                    select new {EquipmentId = s.AreaEquipmentId!.Value, f.Id}).ToListAsync(ct);
-        var legacyFindingCounts = legacyFindings.GroupBy(x => x.EquipmentId).ToDictionary(x => x.Key, x => x.Count());
         var legacyFindingStatuses = await (from finding in db.Findings.AsNoTracking() join session in db.SurveySessions.AsNoTracking() on finding.SurveySessionId equals session.Id
                                            where session.AreaEquipmentId.HasValue && equipmentIds.Contains(session.AreaEquipmentId.Value) && finding.Status != FindingStatus.Closed && finding.Status != FindingStatus.Verified
-                                           select new {EquipmentId = session.AreaEquipmentId!.Value, Status = finding.Status.ToString()}).ToListAsync(ct);
+                                           select new {EquipmentId = session.AreaEquipmentId!.Value, finding.Status}).ToListAsync(ct);
+        var registerFindingStatuses = await db.Findings.AsNoTracking()
+            .Where(f => f.RegisterEquipmentId.HasValue && equipmentIds.Contains(f.RegisterEquipmentId.Value) && f.Status != FindingStatus.Closed && f.Status != FindingStatus.Verified)
+            .Select(f => new {EquipmentId = f.RegisterEquipmentId!.Value, f.Status}).ToListAsync(ct);
+        var findingStatusesByEquipment = legacyFindingStatuses.Concat(registerFindingStatuses).ToLookup(f => f.EquipmentId, f => f.Status.ToString());
         var activityRows = await (from activity in db.InspectionActivities.AsNoTracking()
                                   join task in db.InspectionTasks.AsNoTracking() on activity.InspectionTaskId equals task.Id
                                   where equipmentIds.Contains(task.AreaEquipmentId ?? Guid.Empty)
                                   orderby activity.StartedAt descending
                                   select new {EquipmentId = task.AreaEquipmentId!.Value, activity.Grade, activity.ReviewStatus, activity.StartedAt, activity.InspectorNameSnapshot, activity.Id}).ToListAsync(ct);
         var activityIds = activityRows.Select(x => x.Id).ToArray();
+        var activityComments = (await db.ActivityReviewEvents.AsNoTracking()
+            .Where(x => activityIds.Contains(x.InspectionActivityId) && x.Comments != null)
+            .OrderByDescending(x => x.DecidedAt).Select(x => new {x.InspectionActivityId, x.Comments}).ToListAsync(ct))
+            .GroupBy(x => x.InspectionActivityId).ToDictionary(x => x.Key, x => x.First().Comments);
         var activityResponses = await (from response in db.CheckpointResponseRevisions.AsNoTracking()
                                        join revision in db.InspectionActivityRevisions.AsNoTracking() on response.ActivityRevisionId equals revision.Id
                                        where activityIds.Contains(revision.InspectionActivityId)
@@ -203,7 +211,7 @@ public sealed class ProjectReportData(SurveyDbContext db)
                 ["notifiedBody"] = Availability("notifiedBody", e.NotifiedBody), ["specialConditionsOfUse"] = Availability("specialConditionsOfUse", e.SpecialConditionsOfUse),
                 ["circuitId"] = Availability("circuitId", e.CircuitId), ["rfidTagUid"] = Availability("rfidTagUid", e.RfidTagUid), ["rfidIdentificationMethod"] = Availability("rfidIdentificationMethod", e.RfidIdentificationMethod)
             };
-            var outstanding = legacyFindingCounts.GetValueOrDefault(e.Id) + activityFindingCounts.GetValueOrDefault(e.Id);
+            var outstanding = findingStatusesByEquipment[e.Id].Count() + activityFindingCounts.GetValueOrDefault(e.Id);
             var history = sessions.Where(s => s.AreaEquipmentId == e.Id).Select(s => {
                 var saved = legacyAnswersBySession.GetValueOrDefault(s.Id) ?? [];
                 var legacyResult = saved.Length == 0 ? "Unknown" : saved.Any(x => x is "Fail" or "False" or "FAIL" or "false") ? "Fail" : saved.All(x => x is "Pass" or "True" or "PASS" or "true" or "NA" or "N/A") ? "Pass" : "Unknown";
@@ -213,19 +221,21 @@ public sealed class ProjectReportData(SurveyDbContext db)
             }).Concat(activityRows.Where(a => a.EquipmentId == e.Id).Select(a => {
                 var values = activityResponsesByActivity.GetValueOrDefault(a.Id) ?? [];
                 var activityResult = values.Length == 0 ? "Unknown" : values.Any(x => x is "Fail" or "False" or "FAIL" or "false") ? "Fail" : values.All(x => x is "Pass" or "True" or "PASS" or "true" or "NA" or "N/A") ? "Pass" : "Unknown";
-                return new HaerInspectionHistory(a.Grade.ToString(), a.StartedAt, a.ReviewStatus.ToString(), activityResult, a.InspectorNameSnapshot);
+                return new HaerInspectionHistory(a.Grade?.ToString() ?? "Category checklist", a.StartedAt, a.ReviewStatus.ToString(), activityResult, a.InspectorNameSnapshot);
             })).OrderByDescending(x => x.InspectedAt).ToArray();
-            var findingStatuses = legacyFindingStatuses.Where(f => f.EquipmentId == e.Id).Select(f => f.Status)
+            var findingStatuses = findingStatusesByEquipment[e.Id]
                 .Concat(activityFindings.Where(f => equipmentByActivity.GetValueOrDefault(f.InspectionActivityId) == e.Id).Select(f => f.StatusCode))
                 .GroupBy(statusCode => statusCode).Select(group => $"{group.Key}: {group.Count()}").OrderBy(x => x).ToArray();
             return new HaerRow(e.Id, e.SequenceNo, e.EquipmentCode ?? e.TagNumber, e.TagNumber, areas.GetValueOrDefault(e.AreaId, "Unassigned area"),
                 e.Type, e.Description, e.Location, e.Manufacturer, e.Model, e.SerialNumber, e.CircuitId, e.ExProtectionType, e.GasGroup, e.TemperatureClass, e.HazardousAreaZone, e.AmbientTemperatureRange,
                 e.IpRating, e.ProtectionDetails, e.CertificateNumber, e.NotifiedBody, e.SpecialConditionsOfUse, e.RfidTagUid,
-                latestIsModern ? latestActivity!.ReviewStatus.ToString() : status, latestIsModern ? latestActivity!.Grade.ToString() : grade,
+                latestIsModern ? latestActivity!.ReviewStatus.ToString() : status, latestIsModern ? latestActivity!.Grade?.ToString() : grade,
                 latestIsModern ? latestActivity!.StartedAt : latest?.InspectionTimestamp ?? latest?.SubmittedAt,
                 result, outstanding, latestIsModern ? latestActivity!.InspectorNameSnapshot : latest is null ? null : string.IsNullOrWhiteSpace(latest.InspectorName) ? inspectors.GetValueOrDefault(latest.SurveyorId) : latest.InspectorName,
                 latestIsModern ? latestActivity!.ReviewStatus.ToString() : review?.Status.ToString(), e.RfidIdentificationMethod, e.ReconciliationStatus, statusFields)
-                {InspectionHistory = history, OutstandingDefectStatuses = findingStatuses};
+                {AreaId = e.AreaId, ItemNumber = e.EquipmentCode, EquipmentName = e.EquipmentName,
+                    Comments = latestIsModern ? activityComments.GetValueOrDefault(latestActivity!.Id) : latest?.SurveyorRemarks ?? review?.Comments,
+                    InspectionHistory = history, OutstandingDefectStatuses = findingStatuses};
         }).ToArray();
         return new HaerReport(project.Id, project.ProjectName, project.JobNo, project.VesselOrSiteName, project.ClientName, project.Revision, DateTimeOffset.UtcNow, rows);
     }

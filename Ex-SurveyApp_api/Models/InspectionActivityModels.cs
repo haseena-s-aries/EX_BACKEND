@@ -52,9 +52,10 @@ public sealed class InspectionActivity
     public Guid Id { get; private set; } = Guid.NewGuid();
     public Guid InspectionTaskId { get; set; }
     public Guid? LegacySurveySessionId { get; set; }
-    public InspectionType Grade { get; set; }
+    public InspectionType? Grade { get; set; }
     public Guid InspectorUserId { get; set; }
     public string? InspectorNameSnapshot { get; set; }
+    public string? EquipmentComments { get; set; }
     public DateTimeOffset StartedAt { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }
     public Guid ChecklistVersionId { get; set; }
@@ -82,9 +83,9 @@ public sealed class InspectionActivityRevision
 public sealed class ChecklistVersionSnapshot
 {
     public Guid Id { get; set; } = Guid.NewGuid();
-    public Guid SourceChecklistTemplateId { get; set; }
+    public Guid? SourceChecklistTemplateId { get; set; }
     public int VersionNumber { get; set; }
-    public InspectionType InspectionType { get; set; }
+    public InspectionType? InspectionType { get; set; }
     public string SnapshotHash { get; set; } = "";
     public DateTimeOffset PublishedAt { get; set; }
     public Guid PublishedByUserId { get; set; }
@@ -122,6 +123,8 @@ public sealed class CheckpointResponseRevision
     public Guid CheckpointDefinitionSnapshotId { get; set; }
     public int RevisionNumber { get; set; } = 1;
     public string? ApplicabilityResultCode { get; set; }
+    public string? GradeResultsJson { get; set; }
+    public string? InspectionComment { get; set; }
     public string? ResponseCode { get; set; }
     public string? TechnicalConditionCode { get; set; }
     public CheckpointWorkflowState WorkflowState { get; set; } = CheckpointWorkflowState.Open;
@@ -155,6 +158,11 @@ public sealed class ActivityFinding
     public required string Observation { get; set; }
     public string? ProposedAction { get; set; }
     public string? SeverityCode { get; set; }
+    public string? AosdId { get; set; }
+    public string? FaultCategory { get; set; }
+    public string? RegisterRemarks { get; set; }
+    public string? FollowUpRemarks { get; set; }
+    public string? FailedGrades { get; set; }
     public string? FaultCode { get; set; }
     public string? RequiredMaterialsOrSupport { get; set; }
     public Guid? ResponsibleUserId { get; set; }

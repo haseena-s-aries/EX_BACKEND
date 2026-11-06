@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore;
 namespace Ex_SurveyApp_api.Controllers;
 
 [ApiController, Ex_SurveyApp_api.Attributes.EndpointScopeInventory(Ex_SurveyApp_api.Attributes.EndpointScopeKind.TenantResource), Route("api/v1/equipment-identification")]
-public sealed class EquipmentIdentificationController(SurveyDbContext db) : ControllerBase
+public sealed partial class EquipmentIdentificationController(SurveyDbContext db) : ControllerBase
 {
     private Guid Actor => Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var id) ? id : Guid.Empty;
 
@@ -137,7 +137,8 @@ public sealed class EquipmentIdentificationController(SurveyDbContext db) : Cont
         var query=tracking?db.AreaEquipment.AsQueryable():db.AreaEquipment.AsNoTracking();
         if(User.IsInRole("Admin"))return query;
         if(User.IsInRole("Surveyor"))return query.Where(e=>db.Projects.Any(p=>p.Id==e.ProjectId&&p.AssignedSurveyorId==Actor)||db.InspectionTasks.Any(t=>t.AreaEquipmentId==e.Id&&t.AssignedUserId==Actor));
-        return query.Where(e=>new ProjectReportData(db).AccessibleProjects(User).Any(p=>p.Id==e.ProjectId));
+        var projects = new ProjectReportData(db).AccessibleProjects(User);
+        return query.Where(e => projects.Any(p => p.Id == e.ProjectId));
     }
     private EquipmentTagHistory HistoryRow(Guid equipmentId,Guid projectId,Guid? assignmentId,string technology,string identifier,string action,string reason)=>new(){EquipmentId=equipmentId,ProjectId=projectId,AssignmentId=assignmentId,Technology=technology,NormalizedIdentifier=identifier,ActionCode=action,Reason=reason,ActorUserId=Actor};
     public static bool ValidTechnology(string technology)=>technology is "HF_RFID" or "NFC" or "QR";

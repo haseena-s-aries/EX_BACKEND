@@ -253,6 +253,46 @@ Check(Value<DefectsResponse>(await defectsController.GetDefects(ct)).Summary.Ope
 var defectQuery = (IQueryable<DefectRow>)typeof(DefectsController).GetMethod("Rows", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(As(new DefectsController(sqlDb, storage), manager), null)!;
 Check(defectQuery.OrderByDescending(x => x.InspectionDate).ThenBy(x => x.Id).ToQueryString().Contains("ManagerId"), "Defect query and ordering translate to SQL Server");
 Check(defectQuery.Where(x => x.Id == defects[0].Id).ToQueryString().Contains("Findings"), "Defect photo authorization translates to SQL Server");
+var surveyorRegister = As(new DefectsController(db, storage), surveyor);
+var adminRegister = As(new DefectsController(db, storage), admin);
+var findingRequest = new RegisterFindingRequest(equipment.Id, new DateOnly(2026, 11, 4), InspectionType.Visual,
+    "AOSD-1", "B", "F-01", "New equipment defect", "Inspect cable", "First remark", "Second remark");
+var manualId = Guid.NewGuid();
+var adminId = Guid.NewGuid();
+Check(await surveyorRegister.SaveRegisterRow(project.Id, manualId, findingRequest, ct) is NoContentResult &&
+    await adminRegister.SaveRegisterRow(project.Id, adminId, findingRequest, ct) is NoContentResult,
+    "Surveyor and Admin can create separate defects against the same HAER equipment");
+Check(await surveyorRegister.SaveRegisterRow(project.Id, manualId, findingRequest, ct) is NoContentResult &&
+    await db.Findings.CountAsync(x => x.Id == manualId, ct) == 1, "Retrying a defect row preserves its identity");
+Check(await surveyorRegister.SaveRegisterRow(project.Id, Guid.NewGuid(), findingRequest with {EquipmentId = unrelatedEquipment.Id}, ct) is BadRequestObjectResult &&
+    await As(new DefectsController(db, storage), unrelated).SaveRegisterRow(project.Id, manualId, findingRequest, ct) is NotFoundResult,
+    "Register blocks cross-project equipment and unauthorized writes");
+Check(await surveyorRegister.SaveRegisterRow(project.Id, adminId, findingRequest, ct) is NotFoundResult &&
+    await adminRegister.SaveRegisterRow(project.Id, manualId, findingRequest with {AdditionalRemarks = "Edited second remark"}, ct) is NoContentResult,
+    "Surveyors can edit their own open records and Admin can edit scoped records");
+var surveyorRows = Value<DefectsResponse>(await surveyorRegister.GetDefects(ct, false, project.Id)).Items;
+var adminRows = Value<DefectsResponse>(await adminRegister.GetDefects(ct, false, project.Id)).Items;
+Check(surveyorRows.Any(x => x.Id == adminId && !x.CanEdit) &&
+    adminRows.Any(x => x.Id == manualId && x.CanEdit && x.EquipmentId == equipment.Id && x.Status == FindingStatus.Open &&
+        x.Remarks == "First remark" && x.AdditionalRemarks == "Edited second remark"),
+    "Both roles see shared records, independent remarks and unchanged status");
+var registerQuery = (IQueryable<DefectRow>)typeof(DefectsController).GetMethod("RegisterRows", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+    .Invoke(As(new DefectsController(sqlDb, storage), surveyor), null)!;
+Check(registerQuery.Where(x => x.ProjectId == project.Id).ToQueryString().Contains("AssignedSurveyorId"),
+    "Register project scope translates to SQL Server");
+var photoUpload = new FormFile(new MemoryStream([1, 2, 3]), 0, 3, "photo", "evidence.jpg");
+Check(await surveyorRegister.SetRegisterPhoto(manualId, 1, photoUpload, ct) is NoContentResult &&
+    await surveyorRegister.SetRegisterPhoto(manualId, 2, photoUpload, ct) is NoContentResult,
+    "Defect photo upload stores both independent slots");
+var manualPhotos = Value<DefectsResponse>(await adminRegister.GetDefects(ct, false, project.Id)).Items.Single(x => x.Id == manualId).Photos;
+Check(manualPhotos.Select(x => x.Slot).ToHashSet().SetEquals(["DefectPhoto1", "DefectPhoto2"]) &&
+    await adminRegister.Photo(manualId, manualPhotos[0].Id, ct) is FileStreamResult,
+    "Scoped reads include both defect photo slots and authenticated preview");
+Check(await surveyorRegister.SetRegisterPhoto(manualId, 1, photoUpload, ct) is NoContentResult &&
+    await surveyorRegister.RemoveRegisterPhoto(manualId, 2, ct) is NoContentResult &&
+    Value<DefectsResponse>(await adminRegister.GetDefects(ct, false, project.Id)).Items.Single(x => x.Id == manualId).Photos
+        .Single() is { Slot: "DefectPhoto1" } replacement && replacement.Id != manualPhotos.Single(x => x.Slot == "DefectPhoto1").Id,
+    "Replacing and removing photos affect only the selected slot");
 var deleteController = As(new ProjectController(db, storage, NullLogger<ProjectController>.Instance), manager);
 var otherProjectCount = db.Projects.Count();
 var originalUserCount = db.Users.Count();
@@ -272,7 +312,7 @@ sealed class FakePhotos : IProjectPhotoStorage
     public Task<StoredProjectPhoto> SaveHazardousAreaPlanAsync(IFormFile file, Guid projectId, CancellationToken ct) => throw new NotSupportedException();
     public int MaxFilesPerRequest => 20;
     public Task<StoredProjectPhoto> SaveAsync(IFormFile file, Guid projectId, Guid areaId, CancellationToken ct) => throw new NotSupportedException();
-    public Task<StoredProjectPhoto> SaveInspectionAsync(IFormFile file, Guid projectId, Guid inspectionId, CancellationToken ct) => throw new NotSupportedException();
+    public Task<StoredProjectPhoto> SaveInspectionAsync(IFormFile file, Guid projectId, Guid inspectionId, CancellationToken ct) => Task.FromResult(new StoredProjectPhoto(file.FileName, $"test/{Guid.NewGuid():N}.jpg"));
     public Task<StoredProjectPhotoContent?> OpenReadAsync(string path, CancellationToken ct = default) => Task.FromResult<StoredProjectPhotoContent?>(new(new MemoryStream([1, 2, 3]), "image/png"));
     public Task DeleteAsync(string path, CancellationToken ct = default) => Task.CompletedTask;
 }

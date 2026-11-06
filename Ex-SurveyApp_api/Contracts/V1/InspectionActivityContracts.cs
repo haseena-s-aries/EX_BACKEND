@@ -6,7 +6,7 @@ namespace Ex_SurveyApp_api.Contracts.V1;
 public sealed record CreateInspectionPlanRequest(Guid ProjectId, string Name, string? SourceReference, DateTimeOffset? StartsAt, DateTimeOffset? EndsAt);
 public sealed record CreateInspectionTaskRequest(Guid PlanId, Guid? AreaEquipmentId, Guid? LegacyEquipmentId, InspectionTaskKind Kind, string? ScheduleReference, string? WorkPackageReference, Guid? AssignedUserId, DateTimeOffset? ScheduledAt);
 public sealed record CreateInspectionActivityRequest(InspectionType Grade, Guid ChecklistVersionId, DateTimeOffset StartedAt, DateTimeOffset? CompletedAt);
-public sealed record SaveCheckpointResponseRequest(Guid CheckpointDefinitionSnapshotId, string? ApplicabilityResultCode, string? ResponseCode, string? TechnicalConditionCode, string? Observation, string ActivityRowVersion, decimal? NumericValue = null);
+public sealed record SaveCheckpointResponseRequest(Guid CheckpointDefinitionSnapshotId, string? ApplicabilityResultCode, string? ResponseCode, string? TechnicalConditionCode, string? Observation, string ActivityRowVersion, decimal? NumericValue = null, Dictionary<string, string?>? GradeResults = null, string? InspectionComment = null);
 public sealed record AddActivityFindingRequest(Guid CheckpointResponseRevisionId, string Observation, string? ProposedAction, string? SeverityCode, string? FaultCode = null, string? RequiredMaterialsOrSupport = null, Guid? ResponsibleUserId = null, DateTimeOffset? DueAt = null, string? ResponsibleParty = null);
 public sealed record AddActivityEvidenceRequest(Guid SurveyFileId, Guid? CheckpointResponseRevisionId, Guid? CorrectiveActionId, Guid? CorrectiveActionEventId, ActivityEvidenceRole Role, string? Caption, string? IntegrityHash);
 public sealed record CreateCorrectiveActionRequest(Guid ActivityFindingId, string ActionReference, string? SupplementaryInformation, string? ProposedAction, string? ExternalWorkOrderReference, Guid? ResponsibleUserId, string? ResponsibleParty = null);
@@ -15,7 +15,7 @@ public sealed record CorrectiveActionVerificationRequest(string? Comments, bool 
 public sealed record CorrectiveActionReportRequest(string Description, string? WorkOrderReference, DateTimeOffset RectificationAt, Guid? ResponsibleUserId, string? Comments);
 public sealed record ClientClosureDecisionRequest(bool AcceptClosure, string? Comments);
 
-public sealed record InspectionActivityResponse(Guid Id, Guid TaskId, InspectionType Grade, Guid ChecklistVersionId, InspectionActivityReviewStatus ReviewStatus, DateTimeOffset StartedAt, DateTimeOffset? CompletedAt, string RowVersion);
+public sealed record InspectionActivityResponse(Guid Id, Guid TaskId, InspectionType? Grade, Guid ChecklistVersionId, InspectionActivityReviewStatus ReviewStatus, DateTimeOffset StartedAt, DateTimeOffset? CompletedAt, string RowVersion);
 public sealed record InspectionPlanResponse(Guid Id, Guid ProjectId, string Name, string? SourceReference, DateTimeOffset? StartsAt, DateTimeOffset? EndsAt);
 public sealed record InspectionTaskResponse(Guid Id, Guid PlanId, Guid? AreaEquipmentId, Guid? LegacyEquipmentId, InspectionTaskKind Kind, string? ScheduleReference, string? WorkPackageReference, Guid? AssignedUserId, DateTimeOffset? ScheduledAt, string StatusCode);
 public sealed record CheckpointResponseResponse(Guid Id, Guid CheckpointDefinitionSnapshotId, int RevisionNumber, string? ResponseCode, string? TechnicalConditionCode, decimal? NumericValue, string? MeasurementUnit, bool? IsOutOfRange, CheckpointWorkflowState WorkflowState, DateTimeOffset RecordedAt);
@@ -55,7 +55,7 @@ public static class InspectionActivityContractValidation
     {
         if (request.CheckpointDefinitionSnapshotId == Guid.Empty) throw new ArgumentException("Checkpoint is required.");
         if (string.IsNullOrWhiteSpace(request.ActivityRowVersion) || !Convert.TryFromBase64String(request.ActivityRowVersion, new byte[64], out _)) throw new ArgumentException("A valid activity concurrency token is required.");
-        if (request.Observation?.Length > 4000) throw new ArgumentException("Observation exceeds 4000 characters.");
+        if (request.Observation?.Length > 4000 || request.InspectionComment?.Length > 4000) throw new ArgumentException("Observation exceeds 4000 characters.");
         if (request.NumericValue is decimal numeric && (numeric > 99999999999999.9999m || numeric < -99999999999999.9999m)) throw new ArgumentException("Numeric reading exceeds supported precision.");
     }
 

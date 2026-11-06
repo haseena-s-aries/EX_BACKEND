@@ -39,6 +39,7 @@ public class SurveyDbContext(DbContextOptions<SurveyDbContext> options) : DbCont
     public DbSet<InspectionTask> InspectionTasks => Set<InspectionTask>();
     public DbSet<InspectionActivity> InspectionActivities => Set<InspectionActivity>();
     public DbSet<InspectionActivityRevision> InspectionActivityRevisions => Set<InspectionActivityRevision>();
+    public DbSet<EquipmentChecklistCatalog> EquipmentChecklistCatalogs => Set<EquipmentChecklistCatalog>();
     public DbSet<ChecklistVersionSnapshot> ChecklistVersionSnapshots => Set<ChecklistVersionSnapshot>();
     public DbSet<CheckpointDefinitionSnapshot> CheckpointDefinitionSnapshots => Set<CheckpointDefinitionSnapshot>();
     public DbSet<CheckpointResponseRevision> CheckpointResponseRevisions => Set<CheckpointResponseRevision>();
@@ -82,6 +83,10 @@ public class SurveyDbContext(DbContextOptions<SurveyDbContext> options) : DbCont
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        var checklistCatalog = modelBuilder.Entity<EquipmentChecklistCatalog>();
+        checklistCatalog.Property(x => x.Id).ValueGeneratedNever();
+        checklistCatalog.Property(x => x.Version).IsConcurrencyToken();
+
         var referenceDocument = modelBuilder.Entity<EquipmentReferenceDocument>();
         referenceDocument.ToTable("EquipmentReferenceDocuments");
         referenceDocument.HasKey(x => x.Id);
@@ -204,6 +209,7 @@ public class SurveyDbContext(DbContextOptions<SurveyDbContext> options) : DbCont
         modelBuilder.Entity<AreaEquipment>().Property(x => x.YPercent).HasPrecision(5, 2);
         modelBuilder.Entity<AreaEquipment>().Property(x => x.IsPlacedOnLayout).HasDefaultValue(true);
         modelBuilder.Entity<AreaEquipment>().Property(x => x.TagNumber).HasMaxLength(100);
+        modelBuilder.Entity<AreaEquipment>().Property(x => x.EquipmentName).HasMaxLength(250);
         modelBuilder.Entity<AreaEquipment>().Property(x => x.EquipmentCode).HasMaxLength(100);
         modelBuilder.Entity<AreaEquipment>().Property(x => x.RfidTagUid).HasMaxLength(100);
         modelBuilder.Entity<AreaEquipment>().Property(x => x.Type).HasMaxLength(100);
@@ -298,7 +304,15 @@ public class SurveyDbContext(DbContextOptions<SurveyDbContext> options) : DbCont
         modelBuilder.Entity<ChecklistQuestion>().Property(x => x.MinimumReading).HasPrecision(18, 4);
         modelBuilder.Entity<ChecklistQuestion>().Property(x => x.MaximumReading).HasPrecision(18, 4);
         modelBuilder.Entity<SurveyAnswer>().HasIndex(x => new { x.SurveySessionId, x.ChecklistQuestionId }).IsUnique();
-        modelBuilder.Entity<Finding>().HasOne<SurveySession>().WithMany().HasForeignKey(x => x.SurveySessionId);
+        var finding = modelBuilder.Entity<Finding>();
+        finding.HasOne<SurveySession>().WithMany().HasForeignKey(x => x.SurveySessionId).OnDelete(DeleteBehavior.Cascade);
+        finding.HasOne<AreaEquipment>().WithMany().HasForeignKey(x => x.RegisterEquipmentId).OnDelete(DeleteBehavior.Restrict);
+        finding.HasOne<User>().WithMany().HasForeignKey(x => x.RegisterAuthorId).OnDelete(DeleteBehavior.Restrict);
+        finding.Property(x => x.AosdId).HasMaxLength(100);
+        finding.Property(x => x.FaultCategory).HasMaxLength(1);
+        finding.Property(x => x.FaultCode).HasMaxLength(100);
+        finding.Property(x => x.Remarks).HasMaxLength(2000);
+        finding.Property(x => x.AdditionalRemarks).HasMaxLength(2000);
         modelBuilder.Entity<QcReview>().HasOne<SurveySession>().WithMany().HasForeignKey(x => x.SurveySessionId);
         modelBuilder.Entity<QcReview>().HasOne<User>().WithMany().HasForeignKey(x => x.ReviewedByUserId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<QcReview>().HasIndex(x => x.SurveySessionId).IsUnique();

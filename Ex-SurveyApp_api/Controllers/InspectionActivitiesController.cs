@@ -16,20 +16,22 @@ namespace Ex_SurveyApp_api.Controllers;
 [Authorize]
 [EndpointScopeInventory(EndpointScopeKind.TenantResource)]
 [Route("api/v1/inspection-activities")]
-public sealed class InspectionActivitiesController(SurveyDbContext db, IInspectionActivityApplicationService activities, IOptions<InspectionActivityOptions> options, IProjectPhotoStorage photoStorage) : ControllerBase
+public sealed partial class InspectionActivitiesController(SurveyDbContext db, IInspectionActivityApplicationService activities, IOptions<InspectionActivityOptions> options, IProjectPhotoStorage photoStorage) : ControllerBase
 {
     private Guid ActorId => Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var id) ? id : Guid.Empty;
 
     [HttpGet("equipment/{equipmentId:guid}")]
     [Authorize(Roles = "Surveyor,Manager,Admin,Qc")]
-    public async Task<IActionResult> History(Guid equipmentId, CancellationToken ct)
+    public async Task<IActionResult> History(Guid equipmentId, CancellationToken ct, [FromQuery] bool categoryOnly = false)
     {
+        if (categoryOnly && !User.IsInRole(nameof(UserRole.Admin)) && !User.IsInRole(nameof(UserRole.Surveyor))) return Forbid();
         var projectId = await db.AreaEquipment.AsNoTracking().Where(x => x.Id == equipmentId).Select(x => (Guid?)x.ProjectId).SingleOrDefaultAsync(ct);
         if (projectId is null || !await CanAccessProject(projectId.Value, ct)) return NotFound();
         var rows = await (from task in db.InspectionTasks.AsNoTracking()
                           join plan in db.InspectionPlans.AsNoTracking() on task.InspectionPlanId equals plan.Id
                           join activity in db.InspectionActivities.AsNoTracking() on task.Id equals activity.InspectionTaskId
                           where task.AreaEquipmentId == equipmentId && plan.ProjectId == projectId
+                                && (categoryOnly ? activity.Grade == null && activity.InspectorUserId == ActorId : activity.Grade != null)
                           orderby activity.StartedAt descending
                           select new { activity.Id, activity.Grade, activity.ReviewStatus, activity.StartedAt, activity.CompletedAt, activity.InspectorNameSnapshot, activity.ChecklistVersionId, activity.RowVersion })
             .ToListAsync(ct);
@@ -56,7 +58,7 @@ public sealed class InspectionActivitiesController(SurveyDbContext db, IInspecti
                                 join definition in db.CheckpointDefinitionSnapshots.AsNoTracking() on response.CheckpointDefinitionSnapshotId equals definition.Id
                                 where revision.InspectionActivityId == activityId
                                 orderby response.RevisionNumber descending
-                                select new { response.CheckpointDefinitionSnapshotId, response.Id, response.RevisionNumber, response.ResponseCode, response.Observation, response.NumericValue, response.MeasurementUnitSnapshot, response.RecordedAt, IsOutOfRange = definition.NumericReadingEnabled && response.NumericValue.HasValue && ((definition.MinimumReading.HasValue && response.NumericValue < definition.MinimumReading) || (definition.MaximumReading.HasValue && response.NumericValue > definition.MaximumReading)) })
+                                select new { response.CheckpointDefinitionSnapshotId, response.Id, response.RevisionNumber, response.ResponseCode, response.GradeResultsJson, response.InspectionComment, response.Observation, response.NumericValue, response.MeasurementUnitSnapshot, response.RecordedAt, IsOutOfRange = definition.NumericReadingEnabled && response.NumericValue.HasValue && ((definition.MinimumReading.HasValue && response.NumericValue < definition.MinimumReading) || (definition.MaximumReading.HasValue && response.NumericValue > definition.MaximumReading)) })
             .ToListAsync(ct);
         var findings = await db.ActivityFindings.AsNoTracking().Where(x => x.InspectionActivityId == activityId).Select(x => new { x.Id, x.CheckpointResponseRevisionId, x.Observation, x.ProposedAction, x.SeverityCode, x.FaultCode, x.RequiredMaterialsOrSupport, x.ResponsibleUserId, x.StatusCode, x.ReportedAt, x.ReportedByUserId, x.DueAt }).ToListAsync(ct);
         var findingIds = findings.Select(x => x.Id).ToArray();
@@ -68,8 +70,8 @@ public sealed class InspectionActivitiesController(SurveyDbContext db, IInspecti
         var reviewHistory = await db.ActivityReviewEvents.AsNoTracking().Where(x => x.InspectionActivityId == activityId).OrderBy(x => x.DecidedAt).Select(x => new { x.Decision, x.Comments, x.ActorUserId, x.DecidedAt }).ToListAsync(ct);
         var checkpointReviews = await db.CheckpointReviewEvents.AsNoTracking().Where(x => x.InspectionActivityId == activityId).OrderBy(x => x.ReviewedAt).Select(x => new { x.CheckpointResponseRevisionId, x.Decision, x.Comments, x.ReviewerUserId, x.ReviewedAt }).ToListAsync(ct);
         var referenceDocumentsUsed=options.Value.DocumentUsageEnabled?await db.InspectionActivityDocumentUsages.AsNoTracking().Where(x=>x.InspectionActivityId==activityId).OrderBy(x=>x.OpenedAt).Select(x=>new{x.DocumentIdentity,x.DocumentRevision,x.Sha256,x.Title,x.Scope,x.ScopeId,x.OpenedAt,x.RecordedAt}).ToListAsync(ct):[];
-        var evidence = await (from item in db.ActivityEvidence.AsNoTracking() join file in db.Files.AsNoTracking() on item.SurveyFileId equals file.Id where item.InspectionActivityId == activityId orderby item.AddedAt select new { item.Id, item.CheckpointResponseRevisionId, item.Role, item.Caption, item.AddedByUserId, item.AddedAt, file.FileName, file.ContentType, Url = $"/api/v1/inspection-activities/{activityId:D}/photos/{item.Id:D}" }).ToListAsync(ct);
-        return Ok(new { activity.Id, activity.InspectionTaskId, activity.Grade, activity.ReviewStatus, activity.StartedAt, activity.CompletedAt, RowVersion = Convert.ToBase64String(activity.RowVersion), checklist, checkpoints, responses = responses.GroupBy(x => x.CheckpointDefinitionSnapshotId).Select(x => x.First()), findings, correctiveActions, reviewHistory, checkpointReviews, evidence,referenceDocumentsUsed });
+        var evidence = await (from item in db.ActivityEvidence.AsNoTracking() join file in db.Files.AsNoTracking() on item.SurveyFileId equals file.Id where item.InspectionActivityId == activityId orderby item.AddedAt select new { item.Id, item.CheckpointResponseRevisionId, CheckpointDefinitionSnapshotId = db.CheckpointResponseRevisions.Where(r => r.Id == item.CheckpointResponseRevisionId).Select(r => (Guid?)r.CheckpointDefinitionSnapshotId).FirstOrDefault(), item.Role, item.Caption, item.AddedByUserId, item.AddedAt, file.FileName, file.ContentType, Url = $"/api/v1/inspection-activities/{activityId:D}/photos/{item.Id:D}" }).ToListAsync(ct);
+        return Ok(new { activity.Id, activity.InspectionTaskId, activity.Grade, activity.EquipmentComments, activity.ReviewStatus, activity.StartedAt, activity.CompletedAt, RowVersion = Convert.ToBase64String(activity.RowVersion), checklist, checkpoints, responses = responses.GroupBy(x => x.CheckpointDefinitionSnapshotId).Select(x => x.First()), findings, correctiveActions, reviewHistory, checkpointReviews, evidence,referenceDocumentsUsed });
     }
 
     [HttpPost("tasks/{taskId:guid}/activities")]
@@ -136,7 +138,7 @@ public sealed class InspectionActivitiesController(SurveyDbContext db, IInspecti
 
     [HttpGet("defects")]
     [Authorize(Roles = "Surveyor,Qc,Manager,Admin,Client")]
-    public async Task<IActionResult> DefectRegister([FromQuery] string? status, [FromQuery] bool overdueOnly = false, CancellationToken ct = default)
+    public async Task<IActionResult> DefectRegister([FromQuery] string? status, [FromQuery] bool overdueOnly = false, CancellationToken ct = default, [FromQuery] Guid? projectId = null)
     {
         if (!options.Value.Enabled) return Conflict(new { error = "Inspection activity workflow is not enabled on this installation." });
         var rows = await (from finding in db.ActivityFindings.AsNoTracking()
@@ -149,18 +151,36 @@ public sealed class InspectionActivitiesController(SurveyDbContext db, IInspecti
                           join action in db.CorrectiveActions.AsNoTracking() on finding.Id equals action.ActivityFindingId into actionGroup
                           from action in actionGroup.DefaultIfEmpty()
                           where (User.IsInRole(nameof(UserRole.Admin)) || User.IsInRole(nameof(UserRole.Manager)) && (project.CreatedByUserId == ActorId || db.Users.Any(q => q.Id == project.AssignedQcId && q.ManagerId == ActorId)) || User.IsInRole(nameof(UserRole.Surveyor)) && project.AssignedSurveyorId == ActorId && task.AssignedUserId == ActorId || User.IsInRole(nameof(UserRole.Qc)) && project.AssignedQcId == ActorId || User.IsInRole(nameof(UserRole.Client)) && project.AssignedClientId == ActorId)
+                          where projectId == null || project.Id == projectId
                           orderby finding.ReportedAt descending
-                          select new { finding.Id, finding.InspectionActivityId, EquipmentId = task.AreaEquipmentId, EquipmentTag = task.AreaEquipmentId.HasValue ? db.AreaEquipment.Where(e => e.Id == task.AreaEquipmentId).Select(e => e.TagNumber).FirstOrDefault() : null, LegacyEquipmentId = task.LegacyEquipmentId, ProjectId = project.Id, Project = project.ProjectName, Grade = activity.Grade, Checkpoint = definition.QuestionText, finding.FaultCode, finding.Observation, finding.ProposedAction, finding.SeverityCode, finding.ResponsibleParty, finding.RequiredMaterialsOrSupport, finding.StatusCode, finding.ReportedAt, finding.ReportedByUserId, finding.DueAt, ActionId = action == null ? (Guid?)null : action.Id, ActionReference = action == null ? null : action.ActionReference, ActionStatus = action == null ? (CorrectiveActionStatus?)null : action.Status, ActionResponsibleParty = action == null ? null : action.ResponsibleParty, RectificationDescription = action == null ? null : action.RectificationDescription, WorkOrderReference = action == null ? null : action.ExternalWorkOrderReference, RectificationAt = action == null ? null : action.RectificationAt })
+                          select new { finding.Id, finding.InspectionActivityId, EquipmentId = task.AreaEquipmentId, EquipmentTag = task.AreaEquipmentId.HasValue ? db.AreaEquipment.Where(e => e.Id == task.AreaEquipmentId).Select(e => e.TagNumber).FirstOrDefault() : null, ItemNumber = db.AreaEquipment.Where(e => e.Id == task.AreaEquipmentId).Select(e => e.EquipmentCode).FirstOrDefault(),
+                              EquipmentDescription = db.AreaEquipment.Where(e => e.Id == task.AreaEquipmentId).Select(e => e.Description ?? e.EquipmentName ?? e.Type).FirstOrDefault(),
+                              AreaName = (from equipment in db.AreaEquipment join area in db.ProjectAreas on equipment.AreaId equals area.Id where equipment.Id == task.AreaEquipmentId select area.AreaName).FirstOrDefault(),
+                              LegacyEquipmentId = task.LegacyEquipmentId, ProjectId = project.Id, Project = project.ProjectName, Grade = activity.Grade, InspectionDate = activity.StartedAt, Checkpoint = definition.QuestionText, DefinitionId = definition.Id, finding.FailedGrades, finding.AosdId, finding.FaultCategory, finding.RegisterRemarks, finding.FollowUpRemarks, finding.FaultCode, finding.Observation, finding.ProposedAction, finding.SeverityCode, finding.ResponsibleParty, finding.RequiredMaterialsOrSupport, finding.StatusCode, finding.ReportedAt, finding.ReportedByUserId, finding.DueAt, ActionId = action == null ? (Guid?)null : action.Id, ActionReference = action == null ? null : action.ActionReference, ActionStatus = action == null ? (CorrectiveActionStatus?)null : action.Status, ActionResponsibleParty = action == null ? null : action.ResponsibleParty, RectificationDescription = action == null ? null : action.RectificationDescription, WorkOrderReference = action == null ? null : action.ExternalWorkOrderReference, RectificationAt = action == null ? null : action.RectificationAt })
             .ToListAsync(ct);
         var filtered = rows.Where(x => (string.IsNullOrWhiteSpace(status) || string.Equals(status, "Outstanding", StringComparison.OrdinalIgnoreCase) && x.ActionStatus != CorrectiveActionStatus.ClientClosed || string.Equals(status, "Overdue", StringComparison.OrdinalIgnoreCase) && x.DueAt < DateTimeOffset.UtcNow && x.ActionStatus != CorrectiveActionStatus.ClientClosed || !string.Equals(status, "Outstanding", StringComparison.OrdinalIgnoreCase) && !string.Equals(status, "Overdue", StringComparison.OrdinalIgnoreCase) && string.Equals(status, x.ActionStatus?.ToString() ?? x.StatusCode, StringComparison.OrdinalIgnoreCase)) && (!overdueOnly || x.DueAt < DateTimeOffset.UtcNow && x.ActionStatus != CorrectiveActionStatus.ClientClosed)).ToArray();
         var actionIds = filtered.Where(x => x.ActionId.HasValue).Select(x => x.ActionId!.Value).Distinct().ToArray();
         var history = await db.CorrectiveActionEvents.AsNoTracking().Where(x => actionIds.Contains(x.CorrectiveActionId)).OrderBy(x => x.OccurredAt).Select(x => new { x.CorrectiveActionId, x.Kind, x.ResultingStatus, x.ActorUserId, x.Comment, x.RectificationDescription, x.RectificationAt, x.WorkOrderReference, x.ResponsibleParty, x.OccurredAt }).ToListAsync(ct);
         var actionEvidence = await (from evidence in db.ActivityEvidence.AsNoTracking() join file in db.Files.AsNoTracking() on evidence.SurveyFileId equals file.Id join ev in db.CorrectiveActionEvents.AsNoTracking() on evidence.CorrectiveActionEventId equals ev.Id where actionIds.Contains(ev.CorrectiveActionId) orderby evidence.AddedAt select new { ev.CorrectiveActionId, evidence.Id, evidence.Role, evidence.Caption, evidence.AddedByUserId, evidence.AddedAt, file.FileName, file.ContentType }).ToListAsync(ct);
+        var activityIds = filtered.Select(x => x.InspectionActivityId).Distinct().ToArray();
+        var sourcePhotos = await (from evidence in db.ActivityEvidence.AsNoTracking()
+                                  join file in db.Files.AsNoTracking() on evidence.SurveyFileId equals file.Id
+                                  where evidence.InspectionActivityId.HasValue && activityIds.Contains(evidence.InspectionActivityId.Value) &&
+                                        evidence.CorrectiveActionEventId == null && file.ContentType.StartsWith("image/")
+                                  orderby evidence.AddedAt, evidence.Id
+                                  select new {evidence.Id, evidence.InspectionActivityId, file.FileName,
+                                      DefinitionId = db.CheckpointResponseRevisions.Where(r => r.Id == evidence.CheckpointResponseRevisionId)
+                                          .Select(r => (Guid?)r.CheckpointDefinitionSnapshotId).FirstOrDefault()}).ToListAsync(ct);
+        var photoLookup = sourcePhotos.ToLookup(photo => photo.InspectionActivityId);
         var result = filtered.Select(x =>
         {
             var actionHistory = x.ActionId.HasValue ? history.Where(h => h.CorrectiveActionId == x.ActionId).Select(h => (object)new { h.Kind, h.ResultingStatus, h.ActorUserId, h.Comment, h.RectificationDescription, h.RectificationAt, h.WorkOrderReference, h.ResponsibleParty, h.OccurredAt }).ToArray() : Array.Empty<object>();
             var evidenceRows = x.ActionId.HasValue ? actionEvidence.Where(e => e.CorrectiveActionId == x.ActionId).Select(e => (object)new { e.Id, e.Role, e.Caption, e.AddedByUserId, e.AddedAt, e.FileName, e.ContentType, Url = $"/api/v1/inspection-activities/{x.InspectionActivityId:D}/photos/{e.Id:D}" }).ToArray() : Array.Empty<object>();
-            return new { x.Id, x.InspectionActivityId, x.EquipmentId, x.EquipmentTag, x.LegacyEquipmentId, x.ProjectId, x.Project, x.Grade, x.Checkpoint, x.FaultCode, x.Observation, x.ProposedAction, x.SeverityCode, x.ResponsibleParty, x.RequiredMaterialsOrSupport, x.StatusCode, x.ReportedAt, x.ReportedByUserId, x.DueAt, IsOutstanding = x.ActionStatus != CorrectiveActionStatus.ClientClosed, IsOverdue = x.DueAt < DateTimeOffset.UtcNow && x.ActionStatus != CorrectiveActionStatus.ClientClosed, x.ActionId, x.ActionReference, x.ActionStatus, x.ActionResponsibleParty, x.RectificationDescription, x.WorkOrderReference, x.RectificationAt, History = actionHistory, Evidence = evidenceRows };
+            var photos = photoLookup[x.InspectionActivityId]
+                .Where(p => p.DefinitionId == x.DefinitionId || p.DefinitionId == null)
+                .OrderByDescending(p => p.DefinitionId.HasValue).Take(2)
+                .Select(p => new {p.Id, p.FileName, Url = $"/api/v1/inspection-activities/{x.InspectionActivityId:D}/photos/{p.Id:D}"});
+            return new { x.Id, x.InspectionActivityId, x.EquipmentId, x.EquipmentTag, x.ItemNumber, x.EquipmentDescription, x.AreaName, x.LegacyEquipmentId, x.ProjectId, x.Project, x.Grade, x.FailedGrades, x.InspectionDate, x.AosdId, x.FaultCategory, x.Checkpoint, Remarks = x.RegisterRemarks, AdditionalRemarks = x.FollowUpRemarks, Photos = photos, x.FaultCode, x.Observation, x.ProposedAction, x.SeverityCode, x.ResponsibleParty, x.RequiredMaterialsOrSupport, x.StatusCode, x.ReportedAt, x.ReportedByUserId, x.DueAt, IsOutstanding = x.ActionStatus != CorrectiveActionStatus.ClientClosed, IsOverdue = x.DueAt < DateTimeOffset.UtcNow && x.ActionStatus != CorrectiveActionStatus.ClientClosed, x.ActionId, x.ActionReference, x.ActionStatus, x.ActionResponsibleParty, x.RectificationDescription, x.WorkOrderReference, x.RectificationAt, History = actionHistory, Evidence = evidenceRows };
         });
         return Ok(result);
     }
@@ -264,6 +284,48 @@ public sealed class InspectionActivitiesController(SurveyDbContext db, IInspecti
         var content = await photoStorage.OpenReadAsync(row.StorageKey, ct);
         return content is null ? NotFound() : File(content.Stream, row.ContentType, row.FileName);
     }
+
+    [HttpPut("{activityId:guid}/equipment-comments")]
+    [Authorize(Roles = "Surveyor,Manager,Admin")]
+    public Task<IActionResult> SaveEquipmentComments(Guid activityId, EquipmentCommentsRequest request,
+        [FromServices] InspectionActivityAuthorizer authorizer, CancellationToken ct) => ExecuteService(async () =>
+    {
+        if (!options.Value.Enabled) return NotFound();
+        if (request.Comments?.Length > 4000) return BadRequest(new {error = "Equipment comments must be 4,000 characters or fewer."});
+        var actor = await authorizer.RequireActorAsync(ActorId, ct, UserRole.Surveyor, UserRole.Manager, UserRole.Admin);
+        var (activity, task) = await authorizer.EnsureActivityScopeAsync(activityId, ct);
+        if (actor.Role == UserRole.Surveyor && task.AssignedUserId != actor.Id) return Forbid();
+        if (activity.ReviewStatus is not (InspectionActivityReviewStatus.Draft or InspectionActivityReviewStatus.ChangesRequested))
+            return Conflict(new {error = "This inspection is read-only."});
+        InspectionActivityRules.EnsureExpectedRowVersion(activity.RowVersion, request.RowVersion);
+        activity.EquipmentComments = request.Comments?.Trim();
+        activity.UpdatedAt = DateTimeOffset.UtcNow;
+        try { await db.SaveChangesAsync(ct); }
+        catch (DbUpdateConcurrencyException) { return Conflict(new {error = "The inspection changed. Reopen it and retry."}); }
+        return NoContent();
+    });
+
+    [HttpDelete("{activityId:guid}/photos/{evidenceId:guid}")]
+    [Authorize(Roles = "Surveyor,Manager,Admin")]
+    public Task<IActionResult> RemoveDraftPhoto(Guid activityId, Guid evidenceId,
+        [FromServices] InspectionActivityAuthorizer authorizer, CancellationToken ct) => ExecuteService(async () =>
+    {
+        if (!options.Value.Enabled) return NotFound();
+        var actor = await authorizer.RequireActorAsync(ActorId, ct, UserRole.Surveyor, UserRole.Manager, UserRole.Admin);
+        var (activity, task) = await authorizer.EnsureActivityScopeAsync(activityId, ct);
+        if (actor.Role == UserRole.Surveyor && task.AssignedUserId != actor.Id) return Forbid();
+        if (activity.ReviewStatus != InspectionActivityReviewStatus.Draft)
+            return Conflict(new {error = "Submitted inspection evidence is preserved."});
+        var evidence = await db.ActivityEvidence.SingleOrDefaultAsync(e => e.Id == evidenceId &&
+            e.InspectionActivityId == activityId && e.CorrectiveActionEventId == null, ct);
+        if (evidence is null) return NotFound();
+        if (await db.OfflinePhotoSyncReceipts.AnyAsync(x => x.EvidenceId == evidenceId, ct))
+            return Conflict(new {error = "Photos synchronized from an offline inspection are preserved."});
+        db.ActivityEvidence.Remove(evidence);
+        activity.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
+        return NoContent();
+    });
 
     [HttpPost("corrective-actions/{actionId:guid}/photos")]
     [Authorize(Roles = "Surveyor,Manager,Admin,Qc")]
@@ -383,3 +445,5 @@ public sealed class InspectionActivitiesController(SurveyDbContext db, IInspecti
 }
 
 public sealed record StartEquipmentActivityRequest(InspectionType Grade, DateTimeOffset? StartedAt = null);
+
+public sealed record EquipmentCommentsRequest(string? Comments, string RowVersion);

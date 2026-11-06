@@ -14,6 +14,13 @@ using System.Text;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 
+if (args.Length == 1 && args[0] is ("create-admin" or "create-surveyor"))
+{
+    var role = args[0] == "create-admin" ? UserRole.Admin : UserRole.Surveyor;
+    Environment.ExitCode = await StaffProvisioningCommand.RunAsync(WebApplication.CreateBuilder([]), role, args[0]);
+    return;
+}
+
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();

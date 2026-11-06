@@ -10,11 +10,20 @@ namespace Ex_SurveyApp_api.Controllers;
 
 [ApiController]
 [Ex_SurveyApp_api.Attributes.EndpointScopeInventory(Ex_SurveyApp_api.Attributes.EndpointScopeKind.TenantResource)]
-[Authorize(Roles = "Admin,Manager")]
+[Authorize(Roles = "Admin,Manager,Surveyor")]
 [Route("api/v1/haer")]
 public sealed class HaerController(SurveyDbContext db)
     : ControllerBase
 {
+    [HttpGet("projects/{projectId:guid}/register")]
+    public async Task<IActionResult> Register(Guid projectId, CancellationToken ct)
+    {
+        var report = await new ProjectReportData(db).LoadHaer(projectId, User, ct);
+        if (report is null) return NotFound();
+        return Ok(new { report.ProjectId, report.ProjectName, report.Equipment });
+    }
+
+    [Authorize(Roles = "Admin,Manager")]
     [HttpPut("equipment/{equipmentId:guid}/metadata")]
     public async Task<IActionResult> UpdateMetadata(Guid equipmentId, HaerMetadataRequest request, CancellationToken ct)
     {

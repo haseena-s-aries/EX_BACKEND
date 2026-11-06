@@ -23,7 +23,7 @@ public sealed class ClientDashboardData(SurveyDbContext db, ClaimsPrincipal user
         var jobIds = sessions.Where(s => s.JobId.HasValue).Select(s => s.JobId!.Value).Distinct().ToArray();
         var revisions = await db.ReportRevisions.AsNoTracking().Where(r => jobIds.Contains(r.JobId)).ToListAsync(ct);
         var reviews = await db.QcReviews.AsNoTracking().Where(r => sessionIds.Contains(r.SurveySessionId)).ToDictionaryAsync(r => r.SurveySessionId, ct);
-        var findings = await db.Findings.AsNoTracking().Where(f => sessionIds.Contains(f.SurveySessionId)).ToListAsync(ct);
+        var findings = await db.Findings.AsNoTracking().Where(f => f.SurveySessionId.HasValue && sessionIds.Contains(f.SurveySessionId.Value)).ToListAsync(ct);
         var userIds = projects.SelectMany(p => new[] {p.AssignedSurveyorId, p.AssignedQcId}).Distinct().ToArray();
         var names = await db.Users.AsNoTracking().Where(u => userIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.DisplayName, ct);
         var generated = await db.AuditLogs.AsNoTracking().Where(a => a.EntityType == "Project" && ids.Contains(a.EntityId) &&
@@ -35,7 +35,7 @@ public sealed class ClientDashboardData(SurveyDbContext db, ClaimsPrincipal user
             var submitted = inspections.Where(s => s.SubmittedAt.HasValue || s.Status is SurveyStatus.Submitted or SurveyStatus.Returned or SurveyStatus.Approved).ToArray();
             var inspectedIds = submitted.Select(s => s.AreaEquipmentId!.Value).ToHashSet();
             var inspectionIds = inspections.Select(s => s.Id).ToHashSet();
-            var defects = findings.Where(f => inspectionIds.Contains(f.SurveySessionId)).ToArray();
+            var defects = findings.Where(f => f.SurveySessionId.HasValue && inspectionIds.Contains(f.SurveySessionId.Value)).ToArray();
             QcReviewStatus Status(SurveySession s) => s.Status == SurveyStatus.Approved ? QcReviewStatus.Approved :
                 reviews.TryGetValue(s.Id, out var q) ? q.Status : s.Status == SurveyStatus.Returned ? QcReviewStatus.ChangesRequested : QcReviewStatus.PendingReview;
             var statuses = submitted.Select(Status).ToArray();
@@ -63,7 +63,7 @@ public sealed class ClientDashboardData(SurveyDbContext db, ClaimsPrincipal user
         var equipmentIds = equipment.Select(e => e.Id).ToArray();
         var sessions = await db.SurveySessions.AsNoTracking().Where(s => s.AreaEquipmentId.HasValue && equipmentIds.Contains(s.AreaEquipmentId.Value)).Select(s => new {s.Id, s.AreaEquipmentId, s.JobId}).ToListAsync(ct);
         var sessionIds = sessions.Select(s => s.Id).ToArray();
-        var findings = await db.Findings.AsNoTracking().Where(f => sessionIds.Contains(f.SurveySessionId)).Select(f => new {f.Id, f.SurveySessionId}).ToListAsync(ct);
+        var findings = await db.Findings.AsNoTracking().Where(f => f.SurveySessionId.HasValue && sessionIds.Contains(f.SurveySessionId.Value)).Select(f => new {f.Id, f.SurveySessionId}).ToListAsync(ct);
         var findingIds = findings.Select(f => f.Id).ToArray();
         var logs = await db.AuditLogs.AsNoTracking().Where(a => (a.EntityType == "Project" && ids.Contains(a.EntityId)) ||
             (a.EntityType == QcWorkflowHistory.EntityType && sessionIds.Contains(a.EntityId)) || (a.EntityType == "Finding" && findingIds.Contains(a.EntityId)))

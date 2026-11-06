@@ -10,26 +10,23 @@ using Microsoft.EntityFrameworkCore;
 namespace Ex_SurveyApp_api.Controllers;
 
 [ApiController]
-[Authorize(Roles = "Admin,Manager")]
+[Authorize(Roles = "Admin,Manager,Surveyor")]
 [EndpointScopeInventory(EndpointScopeKind.TenantResource)]
 [Route("api/defects")]
-public class DefectsController(SurveyDbContext db, IProjectPhotoStorage storage) : ControllerBase
+public partial class DefectsController(SurveyDbContext db, IProjectPhotoStorage storage) : ControllerBase
 {
     private Guid UserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
-    private IQueryable<Project> RelevantProjects() => User.IsInRole("Admin")
-        ? db.Projects.AsNoTracking()
-        : db.Projects.AsNoTracking().Where(p => p.CreatedByUserId == UserId ||
-            db.Users.Any(q => q.Id == p.AssignedQcId && q.ManagerId == UserId));
 
     private IQueryable<DefectRow> Rows() =>
         from finding in db.Findings.AsNoTracking()
         join inspection in db.SurveySessions.AsNoTracking() on finding.SurveySessionId equals inspection.Id
         join equipment in db.AreaEquipment.AsNoTracking() on inspection.AreaEquipmentId equals equipment.Id
-        join project in RelevantProjects() on equipment.ProjectId equals project.Id
+        join project in new ProjectReportData(db).AccessibleProjects(User) on equipment.ProjectId equals project.Id
         join area in db.ProjectAreas.AsNoTracking() on equipment.AreaId equals area.Id
         join surveyor in db.Users.AsNoTracking() on inspection.SurveyorId equals surveyor.Id
         select new DefectRow {
-            Id = finding.Id, InspectionId = inspection.Id, ProjectId = project.Id,
+            Id = finding.Id, InspectionId = inspection.Id, ProjectId = project.Id, EquipmentId = equipment.Id,
+            ItemNumber = equipment.EquipmentCode, EquipmentDescription = equipment.Description ?? equipment.EquipmentName ?? equipment.Type, Grade = db.ChecklistTemplates.Where(t => t.Id == inspection.ChecklistTemplateId).Select(t => (InspectionType?)t.InspectionType).FirstOrDefault(),
             ProjectName = project.ProjectName, AreaName = area.AreaName, TagNumber = equipment.TagNumber,
             Observation = finding.Observation, Recommendation = finding.Recommendation,
             Severity = finding.Severity, Status = finding.Status, ReportedBy = surveyor.DisplayName,
@@ -37,9 +34,11 @@ public class DefectsController(SurveyDbContext db, IProjectPhotoStorage storage)
         };
 
     [HttpGet]
-    public async Task<ActionResult<DefectsResponse>> GetDefects(CancellationToken ct, [FromQuery] bool openOnly = true)
+    public async Task<ActionResult<DefectsResponse>> GetDefects(CancellationToken ct, [FromQuery] bool openOnly = true, [FromQuery] Guid? projectId = null)
     {
-        var all = await Rows().OrderByDescending(x => x.InspectionDate).ThenBy(x => x.Id).ToListAsync(ct);
+        var inspections = await Rows().Where(x => projectId == null || x.ProjectId == projectId).ToListAsync(ct);
+        var registered = await RegisterRows().Where(x => projectId == null || x.ProjectId == projectId).ToListAsync(ct);
+        var all = inspections.Concat(registered).OrderByDescending(x => x.RegisterDate ?? DateOnly.FromDateTime(x.InspectionDate.Date)).ThenBy(x => x.Id).ToArray();
         var open = all.Where(x => x.Status is FindingStatus.Open or FindingStatus.RectificationSubmitted).ToArray();
         var summary = new DefectSummary(open.Length,
             open.Count(x => Severity(x.Severity) == "High"), open.Count(x => Severity(x.Severity) == "Medium"),
@@ -48,17 +47,17 @@ public class DefectsController(SurveyDbContext db, IProjectPhotoStorage storage)
         var ids = shown.Select(x => x.Id).ToArray();
         var photos = await db.Files.AsNoTracking().Where(f => f.FindingId.HasValue && ids.Contains(f.FindingId.Value) &&
             f.Category == FileCategory.FindingPhoto && f.ContentType.StartsWith("image/"))
-            .Select(f => new {f.Id, f.FindingId, f.FileName}).ToListAsync(ct);
+            .Select(f => new {f.Id, f.FindingId, f.FileName, f.EquipmentPhotoRole, f.UploadedAt}).ToListAsync(ct);
         return Ok(new DefectsResponse(summary, shown.Select(row => row with {
-            Severity = Severity(row.Severity), Photos = photos.Where(f => f.FindingId == row.Id)
-                .Select(f => new DefectPhoto(f.Id, f.FileName, $"/api/defects/{row.Id}/photos/{f.Id}")).ToArray()
+            Severity = Severity(row.Severity), Photos = photos.Where(f => f.FindingId == row.Id).OrderBy(f => f.UploadedAt).ThenBy(f => f.Id)
+                .Select(f => new DefectPhoto(f.Id, f.FileName, $"/api/defects/{row.Id}/photos/{f.Id}", f.EquipmentPhotoRole)).ToArray()
         }).ToArray()));
     }
 
     [HttpGet("{findingId:guid}/photos/{photoId:guid}")]
     public async Task<IActionResult> Photo(Guid findingId, Guid photoId, CancellationToken ct)
     {
-        if (!await Rows().AnyAsync(x => x.Id == findingId, ct)) return NotFound();
+        if (!await Rows().AnyAsync(x => x.Id == findingId, ct) && !await RegisterRows().AnyAsync(x => x.Id == findingId, ct)) return NotFound();
         var file = await db.Files.AsNoTracking().SingleOrDefaultAsync(f => f.Id == photoId && f.FindingId == findingId &&
             f.Category == FileCategory.FindingPhoto && f.ContentType.StartsWith("image/"), ct);
         if (file is null) return NotFound();
@@ -75,12 +74,23 @@ public class DefectsController(SurveyDbContext db, IProjectPhotoStorage storage)
 }
 
 public sealed record DefectSummary(int OpenCount, int High, int Medium, int Low, int Unspecified);
-public sealed record DefectPhoto(Guid Id, string FileName, string DownloadUrl);
+public sealed record DefectPhoto(Guid Id, string FileName, string DownloadUrl, string? Slot = null);
 public sealed record DefectsResponse(DefectSummary Summary, IReadOnlyList<DefectRow> Items);
 public sealed record DefectRow
 {
     public Guid Id { get; init; }
-    public Guid InspectionId { get; init; }
+    public Guid? InspectionId { get; init; }
+    public Guid EquipmentId { get; init; }
+    public string? ItemNumber { get; init; }
+    public string? EquipmentDescription { get; init; }
+    public InspectionType? Grade { get; init; }
+    public DateOnly? RegisterDate { get; init; }
+    public string? AosdId { get; init; }
+    public string? FaultCategory { get; init; }
+    public string? FaultCode { get; init; }
+    public string? Remarks { get; init; }
+    public string? AdditionalRemarks { get; init; }
+    public bool CanEdit { get; init; }
     public Guid ProjectId { get; init; }
     public string ProjectName { get; init; } = "";
     public string AreaName { get; init; } = "";

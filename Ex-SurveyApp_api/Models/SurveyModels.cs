@@ -166,7 +166,16 @@ public class SurveyAnswer
 public class Finding
 {
     public Guid Id { get; set; } = Guid.NewGuid();
-    public Guid SurveySessionId { get; set; }
+    public Guid? SurveySessionId { get; set; }
+    public Guid? RegisterEquipmentId { get; set; }
+    public Guid? RegisterAuthorId { get; set; }
+    public DateOnly? RegisterDate { get; set; }
+    public InspectionType? RegisterGrade { get; set; }
+    public string? AosdId { get; set; }
+    public string? FaultCategory { get; set; }
+    public string? FaultCode { get; set; }
+    public string? Remarks { get; set; }
+    public string? AdditionalRemarks { get; set; }
     public required string Observation { get; set; }
     public string? Recommendation { get; set; }
     public string? Severity { get; set; }

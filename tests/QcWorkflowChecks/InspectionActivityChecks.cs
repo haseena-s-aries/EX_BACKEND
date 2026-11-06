@@ -1,3 +1,7 @@
+using System.Security.Claims;
+using Ex_SurveyApp_api.Controllers;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Ex_SurveyApp_api.Data;
 using Ex_SurveyApp_api.Contracts.V1;
 using Ex_SurveyApp_api.Models;
@@ -158,6 +162,208 @@ internal static class InspectionActivityChecks
         var inactiveRejected = false;
         try { await inactiveService.CreatePlanAsync(new CreateInspectionPlanRequest(project.Id, "Inactive test", null, null, null)); } catch (InspectionFeatureInactiveException) { inactiveRejected = true; }
         Check(inactiveRejected, "application service refuses to write while the inspection feature flag is disabled");
+
+        var categoryAdmin = new User {Email = "category-admin@example.invalid", DisplayName = "Category Admin",
+            PasswordHash = "test", Role = UserRole.Admin, ApprovalStatus = ApprovalStatus.Approved};
+        db.Users.Add(categoryAdmin);
+        mutableActor.UserId = categoryAdmin.Id;
+        equipment.RegistrationStatus = "Submitted";
+        await db.SaveChangesAsync();
+        var categoryController = new InspectionActivitiesController(db, workflow, Options.Create(new InspectionActivityOptions {Enabled = true}), null!)
+        {
+            ControllerContext = new ControllerContext {HttpContext = new DefaultHttpContext {User = new ClaimsPrincipal(
+                new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, categoryAdmin.Id.ToString()),
+                    new Claim(ClaimTypes.Role, "Admin")], "test"))}}
+        };
+        var date = new CategoryChecklistOpen(new DateOnly(2026, 11, 5));
+        var preview = (OkObjectResult)await categoryController.CategoryChecklist(project.Id, equipment.Id, "All Checkpoints", null, authorizer, default);
+        var previewPoints = System.Text.Json.JsonSerializer.SerializeToElement(preview.Value);
+        var counts = previewPoints.EnumerateArray().GroupBy(p => p.GetProperty("Section").GetString())
+            .ToDictionary(g => g.Key!, g => g.Count());
+        Check(previewPoints.GetArrayLength() == 59 && counts["Apparatus"] == 23 && counts["Installation"] == 33 &&
+            counts["Environment"] == 3, "full PDF list is available before an inspection can be opened");
+        Check(await categoryController.OpenCategoryChecklist(project.Id, equipment.Id, date, authorizer, default) is ConflictObjectResult,
+            "category inspection requires approved sample versions");
+        var categorySource = SampleChecklistImporter.ReadSource();
+        foreach (var grade in Enum.GetValues<InspectionType>())
+            db.ChecklistTemplates.Add(new ChecklistTemplate {Id = SampleChecklistImporter.StableId($"{categorySource.SourceRevision}/{grade}"),
+                Name = $"Approved sample {grade}", InspectionType = grade, LifecycleStatus = ChecklistLifecycleStatus.Published,
+                IsActive = true, ApprovedByUserId = reviewer.Id, ApprovedAt = when});
+        await db.SaveChangesAsync();
+        Check(await categoryController.OpenCategoryChecklist(Guid.NewGuid(), equipment.Id, date, authorizer, default) is NotFoundResult,
+            "category inspection rejects equipment outside the selected project");
+        var opened = (OkObjectResult)await categoryController.OpenCategoryChecklist(project.Id, equipment.Id, date, authorizer, default);
+        var categoryActivity = await db.InspectionActivities.SingleAsync(a => a.Grade == null);
+        var repeated = (OkObjectResult)await categoryController.OpenCategoryChecklist(project.Id, equipment.Id, date, authorizer, default);
+        Check(Equals(opened.Value, repeated.Value) && categoryActivity.Grade is null, "category draft starts with unverified equipment and resumes without a grade");
+        var sourcePoints = await db.CheckpointDefinitionSnapshots.Where(p => p.ChecklistVersionSnapshotId == categoryActivity.ChecklistVersionId).ToListAsync();
+        Check(sourcePoints.Count == 59 && sourcePoints.Select(p => p.QuestionCode).Distinct().Count() == 59,
+            "snapshot preserves all original PDF references without grade duplicates");
+        var categoryResult = (OkObjectResult)await categoryController.CategoryChecklist(project.Id, equipment.Id, "Ex 'n' only", categoryActivity.Id, authorizer, default);
+        var categoryPoints = System.Text.Json.JsonSerializer.SerializeToElement(categoryResult.Value);
+        Check(categoryPoints.GetArrayLength() == 2 &&
+            categoryPoints.EnumerateArray().Select(p => p.GetProperty("ItemNumber").GetInt32()).SequenceEqual([19,20]),
+            "category lookup includes all Ex n checkpoints and retains original numbering");
+        categoryActivity.RowVersion = [1];
+        await db.SaveChangesAsync();
+        var categoryDefinitions = sourcePoints.Where(p => p.ApplicabilityCode == "Ex 'n' only").OrderBy(p => p.SortOrder).ToArray();
+        var firstCategoryAnswer = await workflow.SaveCheckpointResponseAsync(categoryActivity.Id,
+            new(categoryDefinitions[0].Id, null, "Fail", null, "Seal damage", Convert.ToBase64String(categoryActivity.RowVersion)));
+        var findingRequest = new AddActivityFindingRequest(firstCategoryAnswer.Id, "Seal damage", null, null);
+        var firstDefect = await workflow.AddFindingAsync(categoryActivity.Id, findingRequest);
+        Check((await workflow.AddFindingAsync(categoryActivity.Id, findingRequest)).Id == firstDefect.Id,
+            "raising a defect again preserves the original defect");
+        var incomplete = false;
+        try { await workflow.SubmitForReviewAsync(categoryActivity.Id); } catch (InvalidOperationException) { incomplete = true; }
+        Check(incomplete, "a partially answered category cannot be submitted");
+        await workflow.SaveCheckpointResponseAsync(categoryActivity.Id,
+            new(categoryDefinitions[1].Id, null, "Pass", null, null, Convert.ToBase64String(categoryActivity.RowVersion)));
+        var cleared = await workflow.SaveCheckpointResponseAsync(categoryActivity.Id,
+            new(categoryDefinitions[1].Id, null, null, null, "Result cleared", Convert.ToBase64String(categoryActivity.RowVersion)));
+        var blankRejected = false;
+        try { await workflow.SubmitForReviewAsync(categoryActivity.Id); } catch (InvalidOperationException) { blankRejected = true; }
+        Check(cleared.ResponseCode is null && blankRejected, "clearing the latest result persists null and blocks submission even after a prior Pass");
+        await workflow.SaveCheckpointResponseAsync(categoryActivity.Id,
+            new(categoryDefinitions[1].Id, null, "Pass", null, null, Convert.ToBase64String(categoryActivity.RowVersion)));
+        Check((await workflow.SubmitForReviewAsync(categoryActivity.Id)).ReviewStatus == InspectionActivityReviewStatus.Submitted,
+            "completed grade-free category submits to existing review workflow");
+
+        var selection = new CategoryCheckpointSelection(["Installation/1", "Apparatus/19"], 0);
+        Check(await categoryController.SaveCategorySelection(project.Id, selection, authorizer, default) is OkObjectResult &&
+            await categoryController.SaveCategorySelection(project.Id, selection, authorizer, default) is ConflictObjectResult,
+            "project selection is saved and stale edits are rejected");
+        var savedList = (OkObjectResult)await categoryController.CategoryChecklist(project.Id, equipment.Id, "All Checkpoints", null, authorizer, default);
+        Check(System.Text.Json.JsonSerializer.SerializeToElement(savedList.Value).GetArrayLength() == 2,
+            "project checklist shows only the saved checkpoints");
+        Check(await categoryController.OpenCategoryChecklist(project.Id, equipment.Id, new(new DateOnly(2026, 11, 6)), authorizer, default) is OkObjectResult,
+            "future inspection opens using the saved project selection");
+        var nextCategory = await db.InspectionActivities.SingleAsync(a => a.Grade == null && a.Id != categoryActivity.Id);
+        Check(await db.CheckpointDefinitionSnapshots.CountAsync(p => p.ChecklistVersionSnapshotId == nextCategory.ChecklistVersionId) == 2 &&
+            await db.CheckpointDefinitionSnapshots.CountAsync(p => p.ChecklistVersionSnapshotId == categoryActivity.ChecklistVersionId) == 59,
+            "saved selection applies to future inspections while historical checkpoints are preserved");
+        var equipmentSelection = new CategoryCheckpointSelection(["Environment/1"], 0);
+        Check(await categoryController.SaveCategorySelection(project.Id, equipmentSelection, authorizer, default, Guid.NewGuid()) is NotFoundResult &&
+            await categoryController.SaveCategorySelection(project.Id, equipmentSelection, authorizer, default, equipment.Id) is OkObjectResult,
+            "equipment selection requires equipment belonging to the selected project");
+        var equipmentList = (OkObjectResult)await categoryController.CategoryChecklist(project.Id, equipment.Id, "All Checkpoints", null, authorizer, default);
+        Check(System.Text.Json.JsonSerializer.SerializeToElement(equipmentList.Value).EnumerateArray().Single().GetProperty("Code").GetString() == "Environment/1",
+            "equipment checklist overrides the project fallback");
+        var surveyorCategory = new InspectionActivitiesController(db, workflow, Options.Create(new InspectionActivityOptions {Enabled = true}), null!)
+        {
+            ControllerContext = new ControllerContext {HttpContext = new DefaultHttpContext {User = new ClaimsPrincipal(
+                new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, inspector.Id.ToString()), new Claim(ClaimTypes.Role, "Surveyor")], "test"))}}
+        };
+        mutableActor.UserId = inspector.Id;
+        Check(await surveyorCategory.OpenCategoryChecklist(project.Id, equipment.Id, new(new DateOnly(2026, 11, 7)), authorizer, default) is OkObjectResult,
+            "assigned surveyor can open a category inspection from the equipment selection");
+        var surveyorActivity = await db.InspectionActivities.SingleAsync(a => a.Grade == null && a.InspectorUserId == inspector.Id);
+        Check(await db.CheckpointDefinitionSnapshots.CountAsync(p => p.ChecklistVersionSnapshotId == surveyorActivity.ChecklistVersionId) == 1,
+            "surveyor inspection contains only the equipment's selected checkpoints");
+
+        var categoryChange = equipmentSelection with {Version = 1, CategoryChanges = new() {["Environment/1"] = "Ex 'e' 'n' only"}};
+        Check(await surveyorCategory.SaveCategorySelection(project.Id, categoryChange, authorizer, default) is ForbidResult &&
+            await surveyorCategory.SaveCategorySelection(Guid.NewGuid(), categoryChange, authorizer, default, equipment.Id) is NotFoundResult &&
+            await surveyorCategory.SaveCategorySelection(project.Id, categoryChange, authorizer, default, equipment.Id) is OkObjectResult,
+            "surveyors can change checkpoint categories only for equipment in an assigned project");
+        mutableActor.UserId = categoryAdmin.Id;
+        var moved = (OkObjectResult)await categoryController.CategoryChecklist(project.Id, equipment.Id, "Ex 'e' 'n' only", null, authorizer, default);
+        var oldCategory = (OkObjectResult)await categoryController.CategoryChecklist(project.Id, equipment.Id, "Common Checkpoint", null, authorizer, default);
+        Check(System.Text.Json.JsonSerializer.SerializeToElement(moved.Value).EnumerateArray().Single().GetProperty("Code").GetString() == "Environment/1" &&
+            System.Text.Json.JsonSerializer.SerializeToElement(oldCategory.Value).GetArrayLength() == 0 &&
+            await db.CheckpointDefinitionSnapshots.AnyAsync(x => x.ChecklistVersionSnapshotId == surveyorActivity.ChecklistVersionId &&
+                x.QuestionCode == "Environment/1" && x.ApplicabilityCode == "Common check point"),
+            "category change moves the filter result while preserving the existing inspection snapshot");
+
+        Check(await categoryController.SaveChecklistCategory(new(null, "Ex 't' only", "Test category"), default) is NoContentResult &&
+            await categoryController.SaveChecklistCategory(new(null, "EX 'T' ONLY", null), default) is BadRequestObjectResult,
+            "catalog saves categories and rejects case-insensitive duplicates");
+        var dynamicCatalog = (OkObjectResult)await categoryController.GetChecklistCatalog(default);
+        var categoryId = System.Text.Json.JsonSerializer.SerializeToElement(dynamicCatalog.Value).GetProperty("Categories").EnumerateArray()
+            .Single(c => c.GetProperty("Name").GetString() == "Ex 't' only").GetProperty("Id").GetString()!;
+        Check(await categoryController.SaveChecklistCheckpoint(new(null, "Environment", 1, "Duplicate", categoryId), default) is BadRequestObjectResult &&
+            await categoryController.SaveChecklistCheckpoint(new(null, "Environment", 4, "Custom checkpoint", categoryId), default) is NoContentResult &&
+            await categoryController.SaveChecklistCheckpoint(new("Environment/1", "Environment", 1, "Change source", categoryId), default) is BadRequestObjectResult,
+            "custom checkpoints reserve original PDF numbers and source descriptions");
+        Check(await categoryController.SaveCategorySelection(project.Id, new(["Environment/4"], 2), authorizer, default, equipment.Id) is OkObjectResult &&
+            await categoryController.SaveChecklistCheckpoint(new("Environment/4", "Environment", 4, "Revised custom checkpoint", categoryId), default) is NoContentResult &&
+            await categoryController.SaveChecklistCategory(new(categoryId, "Ex 't' custom", null), default) is NoContentResult,
+            "custom checkpoints can be selected and categories can be renamed without changing identity");
+        Check(await categoryController.OpenCategoryChecklist(project.Id, equipment.Id, new(new DateOnly(2026, 11, 8)), authorizer, default) is OkObjectResult,
+            "future inspection opens with a custom catalog checkpoint");
+        var customActivity = await db.InspectionActivities.SingleAsync(a => a.Grade == null && a.StartedAt.Day == 8);
+        Check(await db.CheckpointDefinitionSnapshots.AnyAsync(p => p.ChecklistVersionSnapshotId == customActivity.ChecklistVersionId &&
+            p.QuestionCode == "Environment/4" && p.QuestionText == "Revised custom checkpoint" && p.ApplicabilityCode == categoryId),
+            "future inspection snapshots the latest custom definition and stable category ID");
+
+        await categoryController.SaveChecklistCheckpoint(new("Environment/4", "Environment", 4, "Updated before entry", categoryId), default);
+        var reopened = (OkObjectResult)await categoryController.OpenCategoryChecklist(project.Id, equipment.Id, new(new DateOnly(2026, 11, 8)), authorizer, default);
+        var reopenedId = System.Text.Json.JsonSerializer.SerializeToElement(reopened.Value).GetProperty("id").GetGuid();
+        var refreshed = await db.InspectionActivities.SingleAsync(a => a.Id == reopenedId);
+        Check(reopenedId == customActivity.Id && await db.CheckpointDefinitionSnapshots.AnyAsync(p =>
+            p.ChecklistVersionSnapshotId == refreshed.ChecklistVersionId && p.QuestionText == "Updated before entry"),
+            "an untouched draft adopts the updated checklist without creating another inspection");
+
+        var emptySelection = new CategoryCheckpointSelection([], 3, new() {["Environment/1"] = "Ex 'e' 'n' only"});
+        Check(await categoryController.SaveCategorySelection(project.Id, emptySelection, authorizer, default, equipment.Id) is OkObjectResult,
+            "an empty selection can retain category mappings");
+        mutableActor.UserId = inspector.Id;
+        var full = (OkObjectResult)await surveyorCategory.CategoryChecklist(project.Id, equipment.Id, "All Checkpoints", null, authorizer, default);
+        Check(System.Text.Json.JsonSerializer.SerializeToElement(full.Value).GetArrayLength() == 60 &&
+            await surveyorCategory.OpenCategoryChecklist(project.Id, equipment.Id, new(new DateOnly(2026, 11, 9)), authorizer, default) is OkObjectResult,
+            "surveyors can preview and start the full catalog when the equipment selection is empty");
+
+        var gradeActivity = await db.InspectionActivities.SingleAsync(a => a.Grade == null && a.StartedAt.Day == 9);
+        gradeActivity.RowVersion = [1];
+        await db.SaveChangesAsync();
+        var gradeDefinition = await db.CheckpointDefinitionSnapshots.FirstAsync(p => p.ChecklistVersionSnapshotId == gradeActivity.ChecklistVersionId);
+        var gradeRequest = new SaveCheckpointResponseRequest(gradeDefinition.Id, null, null, null, "Grade remarks",
+            Convert.ToBase64String(gradeActivity.RowVersion), GradeResults: new() {["D"] = "Pass", ["V"] = "Fail"}, InspectionComment: "Checkpoint comment");
+        var graded = await workflow.SaveCheckpointResponseAsync(gradeActivity.Id, gradeRequest);
+        var clearedGrade = await workflow.SaveCheckpointResponseAsync(gradeActivity.Id, gradeRequest with
+            {GradeResults = new() {["D"] = null}, InspectionComment = null});
+        var storedGrades = await db.CheckpointResponseRevisions.AsNoTracking().SingleAsync(r => r.Id == clearedGrade.Id);
+        var gradeValues = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string?>>(storedGrades.GradeResultsJson!)!;
+        Check(graded.ResponseCode == "Fail" && clearedGrade.ResponseCode == "Fail" && gradeValues["D"] is null &&
+            gradeValues["V"] == "Fail" && !gradeValues.ContainsKey("C") && storedGrades.InspectionComment == "Checkpoint comment",
+            "clearing Detailed leaves Visual unchanged and retains checkpoint comments");
+        var allBlank = await workflow.SaveCheckpointResponseAsync(gradeActivity.Id, gradeRequest with {GradeResults = new() {["V"] = null}});
+        Check(allBlank.ResponseCode is null, "clearing the remaining grade removes the aggregate result");
+
+        var commentsRequest = new EquipmentCommentsRequest("Equipment-level remark", Convert.ToBase64String(gradeActivity.RowVersion));
+        Check(await surveyorCategory.SaveEquipmentComments(gradeActivity.Id, commentsRequest, authorizer, default) is NoContentResult &&
+            await db.InspectionActivities.AnyAsync(a => a.Id == gradeActivity.Id && a.EquipmentComments == "Equipment-level remark" &&
+                a.ReviewStatus == InspectionActivityReviewStatus.Draft), "equipment comments save separately without changing review status");
+        gradeActivity.ReviewStatus = InspectionActivityReviewStatus.Submitted;
+        await db.SaveChangesAsync();
+        Check(await surveyorCategory.SaveEquipmentComments(gradeActivity.Id, commentsRequest with {Comments = "Should be blocked"}, authorizer, default) is ConflictObjectResult,
+            "submitted inspection equipment comments are locked");
+
+        var autoDefect = await db.ActivityFindings.SingleAsync(f => f.InspectionActivityId == gradeActivity.Id);
+        Check(autoDefect.Observation == "Grade remarks" && autoDefect.FailedGrades == "V" &&
+            autoDefect.CheckpointResponseRevisionId == graded.Id, "saved Fail generates one source-linked defect that survives clearing the result");
+        Check(await surveyorCategory.SaveInspectionDefectDetails(autoDefect.Id,
+            new("AOSD-7", "B", "F-7", "Check seal", "First", "Second"), authorizer, default) is NoContentResult,
+            "assigned surveyor can save defect register details");
+        var latestPassRevision = await db.CheckpointResponseRevisions.SingleAsync(r => r.Id == allBlank.Id);
+        latestPassRevision.ResponseCode = "Fail";
+        latestPassRevision.GradeResultsJson = "{\"D\":\"Fail\"}";
+        await db.SaveChangesAsync();
+        Check(await surveyorCategory.ReconcileFailedCheckpoints(project.Id, authorizer, default) is NoContentResult &&
+            await surveyorCategory.ReconcileFailedCheckpoints(project.Id, authorizer, default) is NoContentResult &&
+            await db.ActivityFindings.CountAsync(f => f.InspectionActivityId == gradeActivity.Id) == 1 &&
+            autoDefect.FailedGrades == "D,V" && autoDefect.FaultCode == "F-7" && autoDefect.FollowUpRemarks == "Second",
+            "reconciliation adds failed grade associations without duplicating defects or replacing register edits");
+        var photo = new SurveyFile {Category = FileCategory.FindingPhoto, FileName = "source.jpg", StorageKey = "source.jpg",
+            ContentType = "image/jpeg", UploadedById = inspector.Id};
+        db.Files.Add(photo);
+        db.ActivityEvidence.Add(new ActivityEvidence {InspectionActivityId = gradeActivity.Id, CheckpointResponseRevisionId = clearedGrade.Id,
+            SurveyFileId = photo.Id, AddedByUserId = inspector.Id});
+        await db.SaveChangesAsync();
+        var registerResult = (OkObjectResult)await surveyorCategory.DefectRegister(null, projectId: project.Id);
+        var row = System.Text.Json.JsonSerializer.SerializeToElement(registerResult.Value).EnumerateArray()
+            .Single(x => x.GetProperty("Id").GetGuid() == autoDefect.Id);
+        Check(row.GetProperty("Photos").GetArrayLength() == 1 && row.GetProperty("InspectionDate").GetDateTimeOffset() == gradeActivity.StartedAt &&
+            row.GetProperty("AosdId").GetString() == "AOSD-7", "register returns inspection date, editable metadata and the linked checkpoint photo");
 
         Console.WriteLine($"All {_checks} inspection activity foundation checks passed (synthetic EF InMemory only).");
     }

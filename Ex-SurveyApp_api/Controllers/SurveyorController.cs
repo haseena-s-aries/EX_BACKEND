@@ -520,6 +520,9 @@ public class SurveyorController(
         if (equipment is null)
             return NotFound(new { error = "Equipment pin was not found." });
 
+        if (await db.Findings.AnyAsync(x => x.RegisterEquipmentId == equipmentId, cancellationToken))
+            return Conflict(new { error = "This equipment has linked defects and cannot be deleted." });
+
         db.AreaEquipment.Remove(equipment);
         await TouchProject(projectId, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
@@ -661,6 +664,12 @@ public class SurveyorController(
             .Where(x => x.RfidTagUid == normalizedUid)
             .Select(x => (Guid?)x.Id)
             .SingleOrDefaultAsync(cancellationToken);
+        if (!equipmentId.HasValue)
+            equipmentId = await db.EquipmentTagAssignments.AsNoTracking()
+                .Where(x => x.IsActive && (x.Technology == "HF_RFID" || x.Technology == "NFC") &&
+                    x.NormalizedIdentifier == normalizedUid)
+                .Select(x => (Guid?)x.EquipmentId)
+                .SingleOrDefaultAsync(cancellationToken);
         if (!equipmentId.HasValue)
             return NotFound(new { error = "No equipment is linked to this RFID tag." });
 

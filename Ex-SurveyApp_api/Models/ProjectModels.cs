@@ -71,6 +71,7 @@ public class AreaEquipment
     /// <summary>False when field-registered before a layout position is known.</summary>
     public bool IsPlacedOnLayout { get; set; } = true;
     public required string TagNumber { get; set; }
+    public string? EquipmentName { get; set; }
     public string? EquipmentCode { get; set; }
     public string? RfidTagUid { get; set; }
     public required string Type { get; set; }

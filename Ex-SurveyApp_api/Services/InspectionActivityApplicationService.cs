@@ -212,15 +212,36 @@ public sealed class InspectionActivityApplicationService(
         var definition = await db.CheckpointDefinitionSnapshots.AsNoTracking().SingleOrDefaultAsync(x => x.Id == request.CheckpointDefinitionSnapshotId, ct)
             ?? throw new ArgumentException("Checkpoint version was not found.");
         if (definition.ChecklistVersionSnapshotId != activity.ChecklistVersionId) throw new ArgumentException("Checkpoint does not belong to this activity's checklist version.");
-        if (definition.RequireRemarkOnFail && string.Equals(request.ResponseCode, "Fail", StringComparison.OrdinalIgnoreCase) && string.IsNullOrWhiteSpace(request.Observation)) throw new ArgumentException("A remark is required for this failed checkpoint.");
+        var activityRevision = await db.InspectionActivityRevisions.Where(x => x.InspectionActivityId == activityId).OrderByDescending(x => x.RevisionNumber).FirstAsync(ct);
+        var prior = await db.CheckpointResponseRevisions.AsNoTracking()
+            .Where(x => x.ActivityRevisionId == activityRevision.Id && x.CheckpointDefinitionSnapshotId == definition.Id)
+            .OrderByDescending(x => x.RevisionNumber).FirstOrDefaultAsync(ct);
+        var result = request.ResponseCode?.Trim();
+        var gradeJson = prior?.GradeResultsJson;
+        if (request.GradeResults is not null)
+        {
+            if (activity.Grade.HasValue || request.GradeResults.Any(pair => pair.Key is not ("D" or "C" or "V") || pair.Value is not (null or "Pass" or "Fail")))
+                throw new ArgumentException("Choose Pass, Fail, or Blank for a supported inspection grade.");
+            var grades = gradeJson is null ? new Dictionary<string, string?>() :
+                System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string?>>(gradeJson)!;
+            foreach (var (grade, value) in request.GradeResults) grades[grade] = value;
+            gradeJson = System.Text.Json.JsonSerializer.Serialize(grades);
+            result = grades.Values.Contains("Fail") ? "Fail" : grades.Values.Contains("Pass") ? "Pass" : null;
+        }
+        else if (gradeJson is not null) result = prior?.ResponseCode;
+        if (activity.Grade is null && result is not (null or "Pass" or "Fail"))
+            throw new ArgumentException("Select P, F, or Blank.");
+        if (definition.RequireRemarkOnFail && result == "Fail" && string.IsNullOrWhiteSpace(request.Observation))
+            throw new ArgumentException("A remark is required for this failed checkpoint.");
         if (definition.NumericReadingEnabled && definition.NumericReadingRequired && request.NumericValue is null) throw new ArgumentException("A numeric reading is required for this checkpoint.");
         if (!definition.NumericReadingEnabled && request.NumericValue is not null) throw new ArgumentException("This checkpoint is not configured to accept a numeric reading.");
-        var activityRevision = await db.InspectionActivityRevisions.Where(x => x.InspectionActivityId == activityId).OrderByDescending(x => x.RevisionNumber).FirstAsync(ct);
-        var next = await db.CheckpointResponseRevisions.Where(x => x.ActivityRevisionId == activityRevision.Id && x.CheckpointDefinitionSnapshotId == definition.Id).Select(x => (int?)x.RevisionNumber).MaxAsync(ct) ?? 0;
-        var response = new CheckpointResponseRevision { ActivityRevisionId = activityRevision.Id, CheckpointDefinitionSnapshotId = definition.Id, RevisionNumber = checked(next + 1), ApplicabilityResultCode = request.ApplicabilityResultCode?.Trim(), ResponseCode = request.ResponseCode?.Trim(), TechnicalConditionCode = request.TechnicalConditionCode?.Trim(), Observation = request.Observation?.Trim(), NumericValue = request.NumericValue, MeasurementUnitSnapshot = request.NumericValue.HasValue ? definition.MeasurementUnit : null, RecordedAt = clock.GetUtcNow(), RecordedByUserId = actor.Id };
+        var next = prior?.RevisionNumber ?? 0;
+        var response = new CheckpointResponseRevision { ActivityRevisionId = activityRevision.Id, CheckpointDefinitionSnapshotId = definition.Id, RevisionNumber = checked(next + 1), ApplicabilityResultCode = request.ApplicabilityResultCode?.Trim(), ResponseCode = result, GradeResultsJson = gradeJson, InspectionComment = request.InspectionComment?.Trim() ?? prior?.InspectionComment, TechnicalConditionCode = request.TechnicalConditionCode?.Trim(), Observation = request.Observation?.Trim(), NumericValue = request.NumericValue, MeasurementUnitSnapshot = request.NumericValue.HasValue ? definition.MeasurementUnit : null, RecordedAt = clock.GetUtcNow(), RecordedByUserId = actor.Id };
         InspectionActivityRules.ValidateCheckpointRevision(response);
         activity.UpdatedAt = clock.GetUtcNow();
         db.CheckpointResponseRevisions.Add(response);
+        if (response.ResponseCode == "Fail")
+            await FailedCheckpointDefects.EnsureAsync(db, activity, definition, response, actor.Id, ct);
         try { await db.SaveChangesAsync(ct); }
         catch (DbUpdateConcurrencyException ex) { throw new InspectionRequestConflictException("Activity changed concurrently; reload and retry with the latest row version.", ex); }
         var outOfRange = response.NumericValue.HasValue && (definition.MinimumReading.HasValue && response.NumericValue < definition.MinimumReading || definition.MaximumReading.HasValue && response.NumericValue > definition.MaximumReading);
@@ -238,6 +259,17 @@ public sealed class InspectionActivityApplicationService(
         if (!revisionBelongs) throw new UnauthorizedAccessException("Checkpoint response belongs to another activity.");
         InspectionActivityRules.EnsureFindingUsesFailedCheckpoint(checkpoint);
         if (request.ResponsibleUserId is Guid responsible && !await db.Users.AnyAsync(x => x.Id == responsible && x.IsActive && x.ApprovalStatus == ApprovalStatus.Approved, ct)) throw new ArgumentException("Responsible user is inactive or unapproved.");
+        {
+            var automaticId = FailedCheckpointDefects.IdFor(activityId, checkpoint.CheckpointDefinitionSnapshotId);
+            var existing = await (from priorFinding in db.ActivityFindings.AsNoTracking()
+                                  join response in db.CheckpointResponseRevisions.AsNoTracking()
+                                      on priorFinding.CheckpointResponseRevisionId equals response.Id
+                                  where priorFinding.InspectionActivityId == activityId &&
+                                        (activity.Grade == null || priorFinding.Id == automaticId) &&
+                                        response.CheckpointDefinitionSnapshotId == checkpoint.CheckpointDefinitionSnapshotId
+                                  select priorFinding).FirstOrDefaultAsync(ct);
+            if (existing is not null) return new(existing.Id, activity.Id, existing.CheckpointResponseRevisionId, existing.StatusCode);
+        }
         var finding = new ActivityFinding { InspectionActivityId = activityId, CheckpointResponseRevisionId = checkpoint.Id, Observation = request.Observation.Trim(), ProposedAction = request.ProposedAction?.Trim(), SeverityCode = request.SeverityCode?.Trim(), FaultCode = request.FaultCode?.Trim(), RequiredMaterialsOrSupport = request.RequiredMaterialsOrSupport?.Trim(), ResponsibleUserId = request.ResponsibleUserId, ResponsibleParty = request.ResponsibleParty?.Trim(), ReportedAt = clock.GetUtcNow(), ReportedByUserId = actor.Id, DueAt = request.DueAt };
         db.ActivityFindings.Add(finding); activity.UpdatedAt = clock.GetUtcNow(); await db.SaveChangesAsync(ct);
         return new(finding.Id, activity.Id, checkpoint.Id, finding.StatusCode);
@@ -307,11 +339,23 @@ public sealed class InspectionActivityApplicationService(
     {
         EnsureEnabled(); var actor = await authorizer.RequireActorAsync(ActorId, ct, UserRole.Surveyor, UserRole.Admin, UserRole.Manager);
         var (activity, task) = await authorizer.EnsureActivityScopeAsync(activityId, ct); EnsureTaskWriter(task, actor); EnsureEditable(activity);
-        activity.CompletedAt ??= clock.GetUtcNow();
-        var required = await db.CheckpointDefinitionSnapshots.Where(x => x.ChecklistVersionSnapshotId == activity.ChecklistVersionId && x.IsRequired).Select(x => x.Id).ToListAsync(ct);
+        var definitions = await db.CheckpointDefinitionSnapshots.Where(x => x.ChecklistVersionSnapshotId == activity.ChecklistVersionId && x.IsRequired)
+            .Select(x => new { x.Id, x.ApplicabilityCode }).ToListAsync(ct);
         var latestRevision = await db.InspectionActivityRevisions.Where(x => x.InspectionActivityId == activityId).OrderByDescending(x => x.RevisionNumber).Select(x => x.Id).FirstAsync(ct);
-        var answered = await db.CheckpointResponseRevisions.Where(x => x.ActivityRevisionId == latestRevision).Select(x => x.CheckpointDefinitionSnapshotId).Distinct().ToListAsync(ct);
-        if (required.Except(answered).Any()) throw new InvalidOperationException("All required checkpoints need a response before submission.");
+        var responses = await db.CheckpointResponseRevisions.Where(x => x.ActivityRevisionId == latestRevision)
+            .Select(x => new { x.CheckpointDefinitionSnapshotId, x.RevisionNumber, x.ResponseCode }).ToListAsync(ct);
+        var answered = responses.Select(x => x.CheckpointDefinitionSnapshotId).ToHashSet();
+        if (activity.Grade is null)
+        {
+            var selected = definitions.Where(x => answered.Contains(x.Id)).Select(x => x.ApplicabilityCode).ToHashSet();
+            if (selected.Count == 0) throw new InvalidOperationException("Complete at least one checkpoint category before submission.");
+            definitions = definitions.Where(x => selected.Contains(x.ApplicabilityCode)).ToList();
+            answered = responses.GroupBy(x => x.CheckpointDefinitionSnapshotId)
+                .Where(group => group.OrderByDescending(x => x.RevisionNumber).First().ResponseCode is "Pass" or "Fail" or "NA")
+                .Select(group => group.Key).ToHashSet();
+        }
+        if (definitions.Select(x => x.Id).Except(answered).Any()) throw new InvalidOperationException("All required checkpoints need a response before submission.");
+        activity.CompletedAt ??= clock.GetUtcNow();
         activity.ReviewStatus = InspectionActivityReviewStatus.Submitted; activity.UpdatedAt = clock.GetUtcNow();
         db.ActivityReviewEvents.Add(new ActivityReviewEvent { InspectionActivityId = activity.Id, Decision = activity.ReviewStatus, ActorUserId = actor.Id, Comments = "Submitted for review", DecidedAt = clock.GetUtcNow() });
         await db.SaveChangesAsync(ct); return Map(activity);
