@@ -22,6 +22,53 @@ namespace Ex_SurveyApp_api.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.AccountActionToken", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("AuthVersion")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset?>("ConsumedAt")
+                        .IsConcurrencyToken()
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("NewEmail")
+                        .HasMaxLength(320)
+                        .HasColumnType("nvarchar(320)");
+
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nchar(64)")
+                        .IsFixedLength();
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("UserId", "Purpose", "CreatedAt");
+
+                    b.ToTable("AccountActionTokens", (string)null);
+                });
+
             modelBuilder.Entity("Ex_SurveyApp_api.Models.ActivityEvidence", b =>
                 {
                     b.Property<Guid>("Id")
@@ -227,7 +274,7 @@ namespace Ex_SurveyApp_api.Migrations
 
                     b.HasIndex("JobId");
 
-                    b.ToTable("Areas");
+                    b.ToTable("Areas", (string)null);
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.AreaEquipment", b =>
@@ -290,6 +337,10 @@ namespace Ex_SurveyApp_api.Migrations
                         .HasColumnType("bit")
                         .HasDefaultValue(true);
 
+                    b.Property<string>("LayoutImageKey")
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
+
                     b.Property<string>("Location")
                         .HasMaxLength(300)
                         .HasColumnType("nvarchar(300)");
@@ -297,6 +348,9 @@ namespace Ex_SurveyApp_api.Migrations
                     b.Property<string>("Manufacturer")
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
+
+                    b.Property<int?>("MarkingNo")
+                        .HasColumnType("int");
 
                     b.Property<string>("Model")
                         .HasMaxLength(200)
@@ -388,10 +442,14 @@ namespace Ex_SurveyApp_api.Migrations
                     b.HasIndex("AreaId", "SequenceNo")
                         .IsUnique();
 
+                    b.HasIndex("AreaId", "MarkingNo")
+                        .IsUnique()
+                        .HasFilter("[MarkingNo] IS NOT NULL");
+
                     b.HasIndex("AreaId", "TagNumber")
                         .IsUnique();
 
-                    b.ToTable("AreaEquipment");
+                    b.ToTable("AreaEquipment", (string)null);
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.AuditLog", b =>
@@ -439,7 +497,7 @@ namespace Ex_SurveyApp_api.Migrations
 
                     b.HasIndex("EntityId", "OccurredAt");
 
-                    b.ToTable("AuditLogs");
+                    b.ToTable("AuditLogs", (string)null);
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.CampaignAnnualList", b =>
@@ -590,7 +648,7 @@ namespace Ex_SurveyApp_api.Migrations
                         .IsUnique()
                         .HasFilter("[SourceItemReference] IS NOT NULL");
 
-                    b.ToTable("ChecklistQuestions");
+                    b.ToTable("ChecklistQuestions", (string)null);
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.ChecklistTemplate", b =>
@@ -668,7 +726,7 @@ namespace Ex_SurveyApp_api.Migrations
                         .IsUnique()
                         .HasFilter("[FamilyId] IS NOT NULL");
 
-                    b.ToTable("ChecklistTemplates");
+                    b.ToTable("ChecklistTemplates", (string)null);
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.ChecklistVersionSnapshot", b =>
@@ -925,7 +983,7 @@ namespace Ex_SurveyApp_api.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Clients");
+                    b.ToTable("Clients", (string)null);
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.CompanyMaster", b =>
@@ -982,7 +1040,7 @@ namespace Ex_SurveyApp_api.Migrations
                     b.HasIndex("DisplayName")
                         .IsUnique();
 
-                    b.ToTable("CompanyMasters");
+                    b.ToTable("CompanyMasters", (string)null);
 
                     b.HasData(
                         new
@@ -1348,7 +1406,7 @@ namespace Ex_SurveyApp_api.Migrations
                     b.HasIndex("AreaId", "TagNumber")
                         .IsUnique();
 
-                    b.ToTable("Equipment");
+                    b.ToTable("Equipment", (string)null);
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.EquipmentChecklistCatalog", b =>
@@ -1366,7 +1424,7 @@ namespace Ex_SurveyApp_api.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("EquipmentChecklistCatalogs");
+                    b.ToTable("EquipmentChecklistCatalogs", (string)null);
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.EquipmentDocumentRequirementPolicy", b =>
@@ -1673,7 +1731,7 @@ namespace Ex_SurveyApp_api.Migrations
 
                     b.HasIndex("ProjectId", "AreaId", "ScannedAt");
 
-                    b.ToTable("EquipmentScanEvents");
+                    b.ToTable("EquipmentScanEvents", (string)null);
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.EquipmentTagAssignment", b =>
@@ -1738,7 +1796,7 @@ namespace Ex_SurveyApp_api.Migrations
                         .IsUnique()
                         .HasFilter("[IsActive] = 1");
 
-                    b.ToTable("EquipmentTagAssignments");
+                    b.ToTable("EquipmentTagAssignments", (string)null);
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.EquipmentTagHistory", b =>
@@ -1792,7 +1850,40 @@ namespace Ex_SurveyApp_api.Migrations
 
                     b.HasIndex("EquipmentId", "OccurredAt");
 
-                    b.ToTable("EquipmentTagHistory");
+                    b.ToTable("EquipmentTagHistory", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.FieldworkReceipt", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("OperationId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CommittedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("RequestHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("ResponseJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("StatusCode")
+                        .HasColumnType("int");
+
+                    b.HasKey("UserId", "OperationId");
+
+                    b.HasIndex("ProjectId");
+
+                    b.ToTable("FieldworkReceipt", (string)null);
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.Finding", b =>
@@ -1857,7 +1948,7 @@ namespace Ex_SurveyApp_api.Migrations
 
                     b.HasIndex("SurveySessionId");
 
-                    b.ToTable("Findings");
+                    b.ToTable("Findings", (string)null);
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.GeneratedReportArtifact", b =>
@@ -1875,6 +1966,14 @@ namespace Ex_SurveyApp_api.Migrations
                         .IsRequired()
                         .HasMaxLength(150)
                         .HasColumnType("nvarchar(150)");
+
+                    b.Property<string>("DocumentNumber")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("DocumentRevision")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
 
                     b.Property<string>("FileName")
                         .IsRequired()
@@ -1916,6 +2015,10 @@ namespace Ex_SurveyApp_api.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("nvarchar(1000)");
 
+                    b.Property<string>("UidNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("GeneratedByUserId");
@@ -1956,6 +2059,12 @@ namespace Ex_SurveyApp_api.Migrations
                         .HasColumnType("nvarchar(200)");
 
                     b.Property<Guid>("InspectorUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("IsOnHold")
+                        .HasColumnType("bit");
+
+                    b.Property<Guid?>("LastModifiedByUserId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid?>("LegacySurveySessionId")
@@ -2459,7 +2568,7 @@ namespace Ex_SurveyApp_api.Migrations
                     b.HasIndex("JobNumber")
                         .IsUnique();
 
-                    b.ToTable("Jobs");
+                    b.ToTable("Jobs", (string)null);
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.JobAssignment", b =>
@@ -2484,7 +2593,7 @@ namespace Ex_SurveyApp_api.Migrations
                     b.HasIndex("JobId", "UserId", "Role")
                         .IsUnique();
 
-                    b.ToTable("JobAssignments");
+                    b.ToTable("JobAssignments", (string)null);
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.LegacyEntityMap", b =>
@@ -2679,13 +2788,23 @@ namespace Ex_SurveyApp_api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid?>("AdditionalQcId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("AdditionalSurveyorId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<Guid?>("AssignedClientId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("AssignedQcId")
+                        .IsConcurrencyToken()
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("AssignedSurveyorId")
+                        .IsConcurrencyToken()
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("ClientLogoPath")
@@ -2748,6 +2867,10 @@ namespace Ex_SurveyApp_api.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
+                    b.Property<DateOnly?>("TargetDate")
+                        .IsConcurrencyToken()
+                        .HasColumnType("date");
+
                     b.Property<string>("UidNumber")
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
@@ -2762,6 +2885,10 @@ namespace Ex_SurveyApp_api.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("AdditionalQcId");
+
+                    b.HasIndex("AdditionalSurveyorId");
+
                     b.HasIndex("AssignedClientId");
 
                     b.HasIndex("AssignedQcId");
@@ -2775,7 +2902,7 @@ namespace Ex_SurveyApp_api.Migrations
 
                     b.HasIndex("OurCompanyId");
 
-                    b.ToTable("Projects");
+                    b.ToTable("Projects", (string)null);
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.ProjectArea", b =>
@@ -2804,7 +2931,7 @@ namespace Ex_SurveyApp_api.Migrations
                     b.HasIndex("ProjectId", "AreaName")
                         .IsUnique();
 
-                    b.ToTable("ProjectAreas");
+                    b.ToTable("ProjectAreas", (string)null);
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.ProjectAreaPhoto", b =>
@@ -2838,7 +2965,163 @@ namespace Ex_SurveyApp_api.Migrations
 
                     b.HasIndex("UploadedByUserId");
 
-                    b.ToTable("ProjectAreaPhotos");
+                    b.ToTable("ProjectAreaPhotos", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.ProjectClientAssignment", b =>
+                {
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ClientUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("AssignedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.HasKey("ProjectId", "ClientUserId");
+
+                    b.HasIndex("ClientUserId");
+
+                    b.ToTable("ProjectClientAssignments", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.ProjectDelayEmail", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("AcceptedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("AttemptedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("RecipientId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ScheduleEntryId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("nvarchar(24)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("ScheduleEntryId", "RecipientId")
+                        .IsUnique();
+
+                    b.ToTable("ProjectDelayEmails", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.ProjectReportWorkflow", b =>
+                {
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("HoldReason")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<int>("Revision")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasDefaultValue("Ongoing");
+
+                    b.Property<Guid?>("SubmittedArtifactId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset?>("SubmittedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("SubmittedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("UpdatedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint");
+
+                    b.HasKey("ProjectId");
+
+                    b.HasIndex("SubmittedArtifactId");
+
+                    b.ToTable("ProjectReportWorkflows", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.ProjectScheduleEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("ActorId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("DelayDays")
+                        .HasColumnType("int");
+
+                    b.Property<string>("DelayReason")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<string>("EventKey")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<DateOnly?>("ExpectedWorkEndDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("nvarchar(24)");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateOnly?>("PreviousTargetDate")
+                        .HasColumnType("date");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateOnly?>("TargetDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("WorkStartDate")
+                        .HasColumnType("date");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProjectId", "EventKey")
+                        .IsUnique();
+
+                    b.HasIndex("ProjectId", "Kind", "OccurredAt");
+
+                    b.ToTable("ProjectScheduleEntries", (string)null);
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.QcReview", b =>
@@ -2876,7 +3159,7 @@ namespace Ex_SurveyApp_api.Migrations
                     b.HasIndex("SurveySessionId")
                         .IsUnique();
 
-                    b.ToTable("QcReviews");
+                    b.ToTable("QcReviews", (string)null);
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.RegistrationOtp", b =>
@@ -2935,7 +3218,7 @@ namespace Ex_SurveyApp_api.Migrations
                     b.HasIndex("Email")
                         .IsUnique();
 
-                    b.ToTable("RegistrationOtps");
+                    b.ToTable("RegistrationOtps", (string)null);
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.ReportClientRemark", b =>
@@ -2982,7 +3265,7 @@ namespace Ex_SurveyApp_api.Migrations
 
                     b.HasIndex("ProjectId", "CreatedAt");
 
-                    b.ToTable("ReportClientRemarks");
+                    b.ToTable("ReportClientRemarks", (string)null);
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.ReportRevision", b =>
@@ -3010,7 +3293,103 @@ namespace Ex_SurveyApp_api.Migrations
                     b.HasIndex("JobId", "Revision")
                         .IsUnique();
 
-                    b.ToTable("ReportRevisions");
+                    b.ToTable("ReportRevisions", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.ReportWorkflowEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ActorUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("ArtifactId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("FromStatus")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<DateTimeOffset>("OccurredAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<int>("Revision")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ToStatus")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ArtifactId");
+
+                    b.HasIndex("ProjectId", "Version")
+                        .IsUnique();
+
+                    b.ToTable("ReportWorkflowEvents", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.RoleChangeRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("CurrentRole")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<string>("RejectionReason")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<DateTimeOffset>("RequestedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("RequestedRole")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset?>("ReviewedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("ReviewedBy")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Status")
+                        .IsConcurrencyToken()
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReviewedBy");
+
+                    b.HasIndex("UserId")
+                        .IsUnique()
+                        .HasFilter("[Status] = 0");
+
+                    b.ToTable("RoleChangeRequests", (string)null);
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.SamplingApproval", b =>
@@ -3143,7 +3522,7 @@ namespace Ex_SurveyApp_api.Migrations
                     b.HasIndex("SurveySessionId", "ChecklistQuestionId")
                         .IsUnique();
 
-                    b.ToTable("SurveyAnswers");
+                    b.ToTable("SurveyAnswers", (string)null);
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.SurveyFile", b =>
@@ -3216,7 +3595,7 @@ namespace Ex_SurveyApp_api.Migrations
 
                     b.HasIndex("ProjectId", "AreaEquipmentId", "UploadedAt");
 
-                    b.ToTable("Files");
+                    b.ToTable("Files", (string)null);
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.SurveySession", b =>
@@ -3250,6 +3629,9 @@ namespace Ex_SurveyApp_api.Migrations
                     b.Property<Guid?>("JobId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid?>("LastModifiedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
@@ -3264,6 +3646,7 @@ namespace Ex_SurveyApp_api.Migrations
                         .HasColumnType("nvarchar(2000)");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
+                        .IsConcurrencyToken()
                         .HasColumnType("datetimeoffset");
 
                     b.HasKey("Id");
@@ -3280,7 +3663,7 @@ namespace Ex_SurveyApp_api.Migrations
 
                     b.HasIndex("SurveyorId");
 
-                    b.ToTable("SurveySessions");
+                    b.ToTable("SurveySessions", (string)null);
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.SyncBatch", b =>
@@ -3304,7 +3687,7 @@ namespace Ex_SurveyApp_api.Migrations
                     b.HasIndex("SurveyorId", "ClientBatchId")
                         .IsUnique();
 
-                    b.ToTable("SyncBatches");
+                    b.ToTable("SyncBatches", (string)null);
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.Tenant", b =>
@@ -3523,6 +3906,10 @@ namespace Ex_SurveyApp_api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("ApprovalRejectionReason")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
                     b.Property<DateTimeOffset?>("ApprovalReviewedAt")
                         .HasColumnType("datetimeoffset");
 
@@ -3530,7 +3917,18 @@ namespace Ex_SurveyApp_api.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<int>("ApprovalStatus")
+                        .IsConcurrencyToken()
                         .HasColumnType("int");
+
+                    b.Property<int>("AuthVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(0);
+
+                    b.Property<string>("Designation")
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
 
                     b.Property<string>("DisplayName")
                         .IsRequired()
@@ -3550,7 +3948,19 @@ namespace Ex_SurveyApp_api.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("PhoneNumber")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)");
+
+                    b.Property<string>("ProfilePhotoPath")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTimeOffset?>("RegisteredAt")
+                        .HasColumnType("datetimeoffset");
+
                     b.Property<int>("Role")
+                        .IsConcurrencyToken()
                         .HasColumnType("int");
 
                     b.HasKey("Id");
@@ -3562,7 +3972,80 @@ namespace Ex_SurveyApp_api.Migrations
 
                     b.HasIndex("ManagerId");
 
-                    b.ToTable("Users");
+                    b.ToTable("Users", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.UserAccessNotification", b =>
+                {
+                    b.Property<Guid?>("AreaId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("DismissedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("EventKey")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<Guid?>("EquipmentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("InspectionActivityId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasMaxLength(2500)
+                        .HasColumnType("nvarchar(2500)");
+
+                    b.Property<DateTimeOffset?>("ReadAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<Guid?>("ProjectId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("RecipientId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("RoleRequestId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("TargetUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RecipientId", "EventKey")
+                        .IsUnique();
+
+                    b.ToTable("UserAccessNotifications", (string)null);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.AccountActionToken", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Ex_SurveyApp_api.Models.ActivityEvidence", b =>
@@ -4303,6 +4786,16 @@ namespace Ex_SurveyApp_api.Migrations
                 {
                     b.HasOne("Ex_SurveyApp_api.Models.User", null)
                         .WithMany()
+                        .HasForeignKey("AdditionalQcId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("AdditionalSurveyorId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
                         .HasForeignKey("AssignedClientId")
                         .OnDelete(DeleteBehavior.Restrict);
 
@@ -4358,6 +4851,57 @@ namespace Ex_SurveyApp_api.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.ProjectClientAssignment", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.User", "ClientUser")
+                        .WithMany()
+                        .HasForeignKey("ClientUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.Project", "Project")
+                        .WithMany("ClientAssignments")
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ClientUser");
+
+                    b.Navigation("Project");
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.ProjectDelayEmail", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.ProjectScheduleEntry", null)
+                        .WithMany()
+                        .HasForeignKey("ScheduleEntryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.ProjectReportWorkflow", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.Project", null)
+                        .WithOne()
+                        .HasForeignKey("Ex_SurveyApp_api.Models.ProjectReportWorkflow", "ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Ex_SurveyApp_api.Models.GeneratedReportArtifact", null)
+                        .WithMany()
+                        .HasForeignKey("SubmittedArtifactId")
+                        .OnDelete(DeleteBehavior.NoAction);
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.ProjectScheduleEntry", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.Project", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Ex_SurveyApp_api.Models.QcReview", b =>
                 {
                     b.HasOne("Ex_SurveyApp_api.Models.User", null)
@@ -4399,6 +4943,34 @@ namespace Ex_SurveyApp_api.Migrations
                         .WithMany()
                         .HasForeignKey("JobId")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.ReportWorkflowEvent", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.GeneratedReportArtifact", null)
+                        .WithMany()
+                        .HasForeignKey("ArtifactId")
+                        .OnDelete(DeleteBehavior.NoAction);
+
+                    b.HasOne("Ex_SurveyApp_api.Models.Project", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.RoleChangeRequest", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("ReviewedBy")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 
@@ -4605,6 +5177,15 @@ namespace Ex_SurveyApp_api.Migrations
                     b.Navigation("Manager");
                 });
 
+            modelBuilder.Entity("Ex_SurveyApp_api.Models.UserAccessNotification", b =>
+                {
+                    b.HasOne("Ex_SurveyApp_api.Models.User", null)
+                        .WithMany()
+                        .HasForeignKey("RecipientId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Ex_SurveyApp_api.Models.Contract", b =>
                 {
                     b.Navigation("ProjectBindings");
@@ -4618,6 +5199,8 @@ namespace Ex_SurveyApp_api.Migrations
             modelBuilder.Entity("Ex_SurveyApp_api.Models.Project", b =>
                 {
                     b.Navigation("Areas");
+
+                    b.Navigation("ClientAssignments");
 
                     b.Navigation("EquipmentPins");
                 });

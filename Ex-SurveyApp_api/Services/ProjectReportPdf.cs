@@ -79,6 +79,7 @@ public sealed class ProjectReportPdf(IProjectPhotoStorage storage, ILogger logge
             var expectedContents = new[] {"1. Introduction", "1.1 Executive Summary", "1.2 Applicable Standards and References", "2. HAZARDOUS AREA PLAN", "3. HAZARDOUS AREA EQUIPMENT REGISTER & EQUIPMENT LAYOUT"}
                 .Concat(report.Areas.Select((a, n) => $"3.{n + 1} {a.Name}"))
                 .Concat(new[] {"4. EQUIPMENT DEFECT & RECOMMENDATION REGISTER", "5. EQUIPMENT CHECK LIST (IEC 60079-17)"})
+                .Concat(report.SharedLayouts.Select((layout, n) => $"3.{report.Areas.Count + n + 1} {layout.Name}"))
                 .Concat(report.Areas.Select((a, n) => $"5.{n + 1} {a.Name}"));
             var tocY = 110.5;
             toc.Add(Blank());
@@ -100,9 +101,14 @@ public sealed class ProjectReportPdf(IProjectPhotoStorage storage, ILogger logge
                 var area = report.Areas[a];
                 Divider($"3.{a + 1} {area.Name}");
                 if (area.Layout is null && area.Equipment.Count == 0) {NewPage(); Heading(area.Name); Paragraph("No area layout or equipment records available"); continue;}
-                NewPage(true); Heading($"3.{a + 1} {area.Name} - EQUIPMENT LAYOUT");
-                if (area.Layout is null) Paragraph("No Area Layout Uploaded");
-                else DrawImage(area.Layout, new XRect(Margin, y + 10, BodyWidth, Height - y - 80), area.Equipment);
+                IReadOnlyList<ReportAreaLayout> areaLayouts = area.Layouts.Count > 0 ? area.Layouts : area.Layout is null
+                    ? Array.Empty<ReportAreaLayout>() : new[] {new ReportAreaLayout("legacy", "Area Layout", area.Layout)};
+                if (areaLayouts.Count == 0) {NewPage(true); Heading($"3.{a + 1} {area.Name} - EQUIPMENT LAYOUT"); Paragraph("No Area Layout Uploaded");}
+                foreach (var layout in areaLayouts) {
+                    NewPage(true); Heading($"3.{a + 1} {area.Name} - {Clean(layout.Name).ToUpperInvariant()}");
+                    var pins = area.Equipment.Where(e => e.LayoutImageKey == layout.Key || e.LayoutImageKey is null && area.Layout?.Key == layout.Image.Key).ToArray();
+                    DrawImage(layout.Image, new XRect(Margin, y + 10, BodyWidth, Height - y - 80), pins);
+                }
                 if (area.Equipment.Count == 0) continue;
                 EquipmentIndex(area);
                 NewPage(true); EquipmentRegisterHeading();
@@ -110,6 +116,12 @@ public sealed class ProjectReportPdf(IProjectPhotoStorage storage, ILogger logge
                     [.55, 1, 1, .9, 1.2, 1, 1.2, .9, 1.3, 1.3, .85, .9, 1.1, 1.8, 1],
                     area.Equipment.SelectMany(e => e.Inspections.Count == 0 ? new[] {Register(e, area, null)} : e.Inspections.Select(i => Register(e, area, i))), 7.5, "HAZARDOUS AREA EQUIPMENT REGISTER", true,
                     continuationHeading: EquipmentRegisterHeading, centered: true);
+            }
+            for (var n = 0; n < report.SharedLayouts.Count; n++) {
+                var layout = report.SharedLayouts[n];
+                Divider($"3.{report.Areas.Count + n + 1} PROJECT-WIDE LAYOUT");
+                NewPage(true); Heading($"3.{report.Areas.Count + n + 1} {Clean(layout.Name).ToUpperInvariant()}");
+                DrawImage(layout.Image, new XRect(Margin, y + 10, BodyWidth, Height - y - 80), layout.Equipment);
             }
             Divider("4. EQUIPMENT DEFECT & RECOMMENDATION REGISTER");
             NewPage(true); DefectRegisterHeading();

@@ -27,11 +27,15 @@ public class Project
     public string? ClientLogoPath { get; set; }
     public Guid? OurCompanyId {get; set;}
     public CompanyMaster? OurCompany {get; set;}
+    public DateOnly? TargetDate { get; set; }
     public ProjectStatus Status { get; set; } = ProjectStatus.Pending;
     public Guid AssignedSurveyorId { get; set; }
+    public Guid? AdditionalSurveyorId { get; set; }
+    public Guid? AdditionalQcId { get; set; }
     public Guid AssignedQcId { get; set; }
     public User AssignedQc { get; set; } = null!;
     public Guid? AssignedClientId { get; set; }
+    public ICollection<ProjectClientAssignment> ClientAssignments { get; set; } = new List<ProjectClientAssignment>();
     public Guid CreatedByUserId { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
@@ -66,10 +70,17 @@ public class AreaEquipment
     public Guid ProjectId { get; set; }
     public Guid AreaId { get; set; }
     public int SequenceNo { get; set; }
+    /// <summary>
+    /// Area-layout marker number. This is independent from the project-wide HAER SequenceNo.
+    /// Null preserves legacy rows until a marker number is explicitly assigned or backfilled.
+    /// </summary>
+    public int? MarkingNo { get; set; }
     public decimal XPercent { get; set; }
     public decimal YPercent { get; set; }
     /// <summary>False when field-registered before a layout position is known.</summary>
     public bool IsPlacedOnLayout { get; set; } = true;
+    /// <summary>Stable source key for the layout image this pin belongs to (area:{photoId} or common:{fileId}). Null keeps legacy pins on the area's default layout.</summary>
+    public string? LayoutImageKey { get; set; }
     public required string TagNumber { get; set; }
     public string? EquipmentName { get; set; }
     public string? EquipmentCode { get; set; }
@@ -147,4 +158,15 @@ public sealed class EquipmentScanEvent
     public string? Discrepancy { get; set; }
     public DateTimeOffset ScannedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset RecordedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
+public class ProjectClientAssignment
+{
+    public Guid ProjectId { get; set; }
+    public Project Project { get; set; } = null!;
+    public Guid ClientUserId { get; set; }
+    public User ClientUser { get; set; } = null!;
+    public bool IsActive { get; set; } = true;
+    public DateTimeOffset AssignedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 }

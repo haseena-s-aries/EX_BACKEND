@@ -136,7 +136,7 @@ public sealed partial class EquipmentIdentificationController(SurveyDbContext db
     {
         var query=tracking?db.AreaEquipment.AsQueryable():db.AreaEquipment.AsNoTracking();
         if(User.IsInRole("Admin"))return query;
-        if(User.IsInRole("Surveyor"))return query.Where(e=>db.Projects.Any(p=>p.Id==e.ProjectId&&p.AssignedSurveyorId==Actor)||db.InspectionTasks.Any(t=>t.AreaEquipmentId==e.Id&&t.AssignedUserId==Actor));
+        if(User.IsInRole("Surveyor"))return query.Where(e=>db.Projects.Any(p=>p.Id==e.ProjectId&&(p.AssignedSurveyorId == Actor || p.AdditionalSurveyorId == Actor))||db.InspectionTasks.Any(t=>t.AreaEquipmentId==e.Id&&t.AssignedUserId==Actor));
         var projects = new ProjectReportData(db).AccessibleProjects(User);
         return query.Where(e => projects.Any(p => p.Id == e.ProjectId));
     }

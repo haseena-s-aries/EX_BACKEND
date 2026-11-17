@@ -27,7 +27,7 @@ public sealed partial class InspectionActivitiesController
             .OrderBy(p => Array.IndexOf(CatalogSections, p.Section)).ThenBy(p => p.ItemNumber).ToArray();
 
     [HttpGet("category-checklist/catalog")]
-    [Authorize(Roles = "Admin,Surveyor")]
+    [Authorize(Roles = "Admin,Surveyor,Qc")]
     public async Task<IActionResult> GetChecklistCatalog(CancellationToken ct)
     {
         var catalog = await ReadCatalog(ct);

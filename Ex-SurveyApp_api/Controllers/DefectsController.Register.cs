@@ -1,7 +1,8 @@
-using System.Data;
+﻿using System.Data;
 using Ex_SurveyApp_api.Models;
 using Ex_SurveyApp_api.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 
 namespace Ex_SurveyApp_api.Controllers;
@@ -9,7 +10,7 @@ namespace Ex_SurveyApp_api.Controllers;
 public partial class DefectsController
 {
     private IQueryable<Project> Projects() => new ProjectReportData(db).AccessibleProjects(User);
-    private bool CanEdit(Guid? author) => User.IsInRole("Admin") || User.IsInRole("Manager") || author == UserId;
+    private bool CanEdit(Guid? author) => User.IsInRole("Admin") || User.IsInRole("Manager") || User.IsInRole("Surveyor") && author == UserId;
 
     private IQueryable<DefectRow> RegisterRows()
     {
@@ -28,7 +29,7 @@ public partial class DefectsController
                    FaultCategory = finding.FaultCategory, FaultCode = finding.FaultCode, Remarks = finding.Remarks,
                    AdditionalRemarks = finding.AdditionalRemarks, Observation = finding.Observation,
                    Recommendation = finding.Recommendation, Status = finding.Status, ReportedBy = author.DisplayName,
-                   CanEdit = finding.Status == FindingStatus.Open && (manage || finding.RegisterAuthorId == actor)
+                   CanEdit = finding.Status == FindingStatus.Open && (manage || User.IsInRole("Surveyor") && finding.RegisterAuthorId == actor)
                };
     }
 
@@ -50,6 +51,7 @@ public partial class DefectsController
     }
 
     [HttpPut("register/projects/{projectId:guid}/{findingId:guid}")]
+    [Authorize(Roles = "Admin,Manager,Surveyor")]
     public async Task<IActionResult> SaveRegisterRow(Guid projectId, Guid findingId, RegisterFindingRequest request, CancellationToken ct)
     {
         if (findingId == Guid.Empty) return BadRequest(new { error = "A defect identifier is required." });
@@ -65,7 +67,7 @@ public partial class DefectsController
             request.Observation.Trim().Length > 4000 || Clean(request.Recommendation)?.Length > 4000)
             return BadRequest(new { error = "AOSD ID and fault code allow 100 characters, remarks allow 2,000, and observation and recommendation allow 4,000." });
 
-        await using var transaction = db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct) : null;
+        await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction == null ? await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct) : null;
         var row = await db.Findings.SingleOrDefaultAsync(x => x.Id == findingId, ct);
         if (row is null)
         {
@@ -92,12 +94,14 @@ public partial class DefectsController
     }
 
     [HttpPut("register/{findingId:guid}/photos/{slot:int}")]
+    [Authorize(Roles = "Admin,Manager,Surveyor")]
     [RequestSizeLimit(11 * 1024 * 1024)]
     [Consumes("multipart/form-data")]
     public Task<IActionResult> SetRegisterPhoto(Guid findingId, int slot, IFormFile photo, CancellationToken ct) =>
         UpdateRegisterPhoto(findingId, slot, photo, ct);
 
     [HttpDelete("register/{findingId:guid}/photos/{slot:int}")]
+    [Authorize(Roles = "Admin,Manager,Surveyor")]
     public Task<IActionResult> RemoveRegisterPhoto(Guid findingId, int slot, CancellationToken ct) =>
         UpdateRegisterPhoto(findingId, slot, null, ct);
 
@@ -105,7 +109,7 @@ public partial class DefectsController
     {
         if (slot is not (1 or 2)) return BadRequest(new { error = "Choose photo slot 1 or 2." });
         var role = $"DefectPhoto{slot}";
-        await using var transaction = db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct) : null;
+        await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction == null ? await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct) : null;
         var row = await RegisterRows().SingleOrDefaultAsync(x => x.Id == findingId && x.CanEdit, ct);
         if (row is null) return NotFound();
         var existing = await db.Files.Where(f => f.FindingId == findingId && f.Category == FileCategory.FindingPhoto && f.EquipmentPhotoRole == role).ToListAsync(ct);
@@ -114,7 +118,7 @@ public partial class DefectsController
         {
             try { saved = await storage.SaveInspectionAsync(photo, row.ProjectId, findingId, ct); }
             catch (ProjectPhotoValidationException ex) { return BadRequest(new { error = ex.Message }); }
-            var type = Path.GetExtension(saved.OriginalFileName).ToLowerInvariant() switch { ".png" => "image/png", ".webp" => "image/webp", _ => "image/jpeg" };
+            var type = Path.GetExtension(saved.OriginalFileName).ToLowerInvariant() switch { ".pdf" => "application/pdf", ".png" => "image/png", ".webp" => "image/webp", _ => "image/jpeg" };
             db.Files.Add(new SurveyFile { FindingId = findingId, ProjectId = row.ProjectId, AreaEquipmentId = row.EquipmentId,
                 Category = FileCategory.FindingPhoto, EquipmentPhotoRole = role, UploadedById = UserId,
                 FileName = saved.OriginalFileName, StorageKey = saved.RelativePath, ContentType = type });

@@ -30,6 +30,7 @@ static class ClientDashboardChecks
         var databaseName = "client-" + Guid.NewGuid();
         builder.Services.AddDbContext<SurveyDbContext>(o => o.UseInMemoryDatabase(databaseName));
         builder.Services.AddSingleton<IProjectPhotoStorage, FakeStorage>();
+        builder.Services.AddSingleton<IGeneratedReportArtifactStorage, FakeArchive>();
         builder.Services.AddAuthentication("Test").AddScheme<AuthenticationSchemeOptions, Auth>("Test", _ => {}); builder.Services.AddAuthorization();
         await using var app = builder.Build(); app.UseSwagger(); app.UseAuthentication(); app.UseAuthorization(); app.MapControllers();
         using var scope = app.Services.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<SurveyDbContext>();
@@ -61,6 +62,24 @@ static class ClientDashboardChecks
         foreach (var route in new[] {$"projects/{own.Id}", $"projects/{own.Id}/areas", $"areas/{ownArea.Id}/equipment", $"equipment/{pin.Id}", "defects", "reports", "notifications", $"files/{photo.Id}"})
             Check((await http.GetAsync("/api/client/" + route)).StatusCode == HttpStatusCode.OK, "Assigned project read succeeds: " + route.Split('/')[0]);
         var defectText = await http.GetStringAsync("/api/client/defects"); Check(!defectText.Contains("private/") && !defectText.Contains("Private defect"), "Client defects expose authenticated URLs without physical storage paths or foreign data");
+        var manual = new Finding {RegisterEquipmentId=pin.Id,RegisterAuthorId=surveyor.Id,RegisterDate=new DateOnly(2026,11,12),RegisterGrade=InspectionType.Close,
+            Observation="Registered defect without a survey session",FaultCategory="B",FaultCode="REG-1",AosdId="AOSD-1",Remarks="First saved remark",AdditionalRemarks="Second saved remark"};
+        var foreignManual = new Finding {RegisterEquipmentId=foreignPin.Id,RegisterAuthorId=surveyor.Id,Observation="Foreign registered defect"};
+        var manualPhotos = new[] {1,2}.Select(n=>new SurveyFile {FindingId=manual.Id,FileName=$"registered-{n}.png",StorageKey=$"private/register-{n}.png",ContentType="image/png",UploadedById=surveyor.Id,Category=FileCategory.FindingPhoto}).ToArray();
+        db.Findings.AddRange(manual,foreignManual);db.Files.AddRange(manualPhotos);await db.SaveChangesAsync();
+        var register = await http.GetFromJsonAsync<JsonElement>("/api/client/defects");
+        var registeredRow = register.EnumerateArray().Single(r=>r.GetProperty("id").GetGuid()==manual.Id);
+        Check(registeredRow.GetProperty("faultCategory").GetString()=="B" && registeredRow.GetProperty("additionalRemarks").GetString()=="Second saved remark" &&
+            registeredRow.GetProperty("beforePhotos").GetArrayLength()==2 && !register.ToString().Contains("Foreign registered defect"),"Client register includes manual defects, metadata and both photos within assigned projects only");
+        Check((await http.GetAsync($"/api/client/files/{manualPhotos[0].Id}")).StatusCode==HttpStatusCode.OK,"Registered defect evidence uses authenticated project-scoped file access");
+        own.AssignedClientId=other.Id;
+        var additionalClient=new ProjectClientAssignment {ProjectId=own.Id,ClientUserId=c.Id,IsActive=true};db.ProjectClientAssignments.Add(additionalClient);await db.SaveChangesAsync();
+        var sharedRegister=await http.GetStringAsync("/api/client/defects");
+        Check(sharedRegister.Contains(manual.Id.ToString()) && !sharedRegister.Contains("Foreign registered defect"),"Multiple Client assignment links authorize the same scoped register without foreign records");
+        own.AssignedClientId=c.Id;db.ProjectClientAssignments.Remove(additionalClient);await db.SaveChangesAsync();
+        var manualRemark = await http.PostAsJsonAsync("/api/client/remarks",new AddClientRemarkRequest(own.Id,"Registered defect question",pin.Id,manual.Id));
+        Check(manualRemark.StatusCode==HttpStatusCode.Created,"Existing Client remark permission supports an authorized registered defect");
+        db.ReportClientRemarks.RemoveRange(db.ReportClientRemarks.Where(r=>r.FindingId==manual.Id));db.Files.RemoveRange(manualPhotos);db.Findings.RemoveRange(manual,foreignManual);await db.SaveChangesAsync();
         var created = await http.PostAsJsonAsync("/api/client/remarks", new AddClientRemarkRequest(own.Id, "Please clarify", pin.Id, finding.Id));
         Check(created.StatusCode == HttpStatusCode.Created, "Client can add a contextual remark");
         var saved = await created.Content.ReadFromJsonAsync<JsonElement>(); Check(saved.GetProperty("clientUserId").GetGuid() == c.Id && !saved.GetProperty("isRead").GetBoolean(), "Remark author comes from authentication and starts unread");
@@ -104,6 +123,10 @@ static class ClientDashboardChecks
     {
         protected override Task<AuthenticateResult> HandleAuthenticateAsync() => Task.FromResult(Guid.TryParse(Request.Headers["X-Test-User"], out var id)
             ? AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(new ClaimsIdentity([new(ClaimTypes.NameIdentifier, id.ToString()), new(ClaimTypes.Role, Request.Headers["X-Test-Role"].ToString())], Scheme.Name)), Scheme.Name)) : AuthenticateResult.NoResult());
+    }
+    sealed class FakeArchive : IGeneratedReportArtifactStorage {
+        public Task<ArchivedReportFile> SaveAsync(Guid projectId, Guid id, string name, byte[] bytes, CancellationToken ct) => throw new NotSupportedException("Client reads do not create report archives.");
+        public Task<StoredProjectPhotoContent?> OpenReadAsync(string key, CancellationToken ct) => Task.FromResult<StoredProjectPhotoContent?>(null);
     }
     sealed class FakeStorage : IProjectPhotoStorage {
         public int MaxFilesPerRequest => 20;

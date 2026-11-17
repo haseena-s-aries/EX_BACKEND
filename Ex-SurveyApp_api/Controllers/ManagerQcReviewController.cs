@@ -63,23 +63,65 @@ public class ManagerQcReviewController(SurveyDbContext db, IProjectPhotoStorage 
     }
 
     [HttpGet("equipment/{equipmentId:guid}")]
-    public async Task<ActionResult<ManagerQcInspection>> Inspection(Guid equipmentId, CancellationToken ct)
+    public async Task<ActionResult<ManagerQcInspection>> Inspection(Guid equipmentId, CancellationToken ct, [FromQuery] Guid? inspectionId = null)
     {
         var equipment = await db.AreaEquipment.AsNoTracking().SingleOrDefaultAsync(e => e.Id == equipmentId, ct);
         if (equipment is null) return NotFound();
         var project = await RelevantProjects().SingleOrDefaultAsync(p => p.Id == equipment.ProjectId, ct);
         if (project is null) return NotFound();
-        var row = (await LoadRows([project.Id], ct)).Single(r => r.Equipment.Id == equipmentId);
+        var row = (await LoadRows([project.Id], ct)).Where(r => r.Equipment.Id == equipmentId &&
+            (!inspectionId.HasValue || r.Inspection?.Id == inspectionId))
+            .OrderByDescending(r => r.Inspection?.CreatedAt).FirstOrDefault();
+        if (row is null) return NotFound();
         var users = await db.Users.AsNoTracking().ToDictionaryAsync(u => u.Id, ct);
         var history = row.Inspection is null ? [] : await db.AuditLogs.AsNoTracking()
             .Where(a => a.EntityType == QcWorkflowHistory.EntityType && a.EntityId == row.Inspection.Id)
             .OrderBy(a => a.OccurredAt).ThenBy(a => a.Id).ToListAsync(ct);
         var detail = row.Inspection is null ? null : await new QcInspectionReader(db)
             .BuildInspectionResponse(row.Inspection, equipment, project, ct);
+        var grade = row.Inspection?.ChecklistTemplateId is Guid templateId
+            ? await db.ChecklistTemplates.AsNoTracking().Where(t => t.Id == templateId)
+                .Select(t => (InspectionType?)t.InspectionType).SingleOrDefaultAsync(ct) : null;
+        var areaName = await db.ProjectAreas.AsNoTracking().Where(a => a.Id == equipment.AreaId)
+            .Select(a => a.AreaName).SingleOrDefaultAsync(ct);
         return Ok(new ManagerQcInspection(Equipment(row, users), detail, history.Select(a =>
             new ManagerQcHistory(a.Id, a.Action, a.OccurredAt,
                 a.ActorId.HasValue ? users.GetValueOrDefault(a.ActorId.Value)?.DisplayName : null,
-                a.Comments, a.Severity, a.QcStatus, a.ReviewStartedAt, a.ReviewedAt)).ToArray()));
+                a.Comments, a.Severity, a.QcStatus, a.ReviewStartedAt, a.ReviewedAt)).ToArray(),
+            grade?.ToString(), equipment.EquipmentName, equipment.Description, equipment.EquipmentCode,
+            areaName, equipment.RfidTagUid));
+    }
+
+    [HttpGet("projects/{projectId:guid}/records")]
+    public async Task<IActionResult> Records(Guid projectId, CancellationToken ct)
+    {
+        if (!await RelevantProjects().AnyAsync(p => p.Id == projectId, ct)) return NotFound();
+        var rows = await LoadRows([projectId], ct);
+        var users = await db.Users.AsNoTracking().ToDictionaryAsync(u => u.Id, ct);
+        var areas = await db.ProjectAreas.AsNoTracking().Where(a => a.ProjectId == projectId)
+            .ToDictionaryAsync(a => a.Id, a => a.AreaName, ct);
+        var templates = await db.ChecklistTemplates.AsNoTracking().ToDictionaryAsync(t => t.Id, ct);
+        var inspectionIds = rows.Where(r => r.Inspection != null).Select(r => r.Inspection!.Id).ToArray();
+        var reviewedIds = await db.AuditLogs.AsNoTracking().Where(a => a.EntityType == QcWorkflowHistory.EntityType && inspectionIds.Contains(a.EntityId) &&
+            (a.Action == "QC Started Review" || a.Action == "QC Approved" || a.Action == "QC Requested Changes"))
+            .Select(a => a.EntityId).Distinct().ToListAsync(ct);
+        return Ok(rows.Where(r => r.Inspection != null &&
+            (r.Inspection.SubmittedAt != null || r.Review != null || r.LastActivity != null))
+            .DistinctBy(r => r.Inspection!.Id).Select(r => new
+            {
+                r.ProjectId, r.AreaId, AreaName = areas.GetValueOrDefault(r.AreaId),
+                AreaTotalEquipment = rows.Where(a => a.AreaId == r.AreaId).Select(a => a.Equipment.Id).Distinct().Count(),
+                Equipment = Equipment(r, users), ItemNumber = r.Equipment.EquipmentCode,
+                r.Equipment.EquipmentName, r.Equipment.Description, r.Equipment.RfidTagUid,
+                InspectionDate = r.Inspection!.InspectionTimestamp ?? r.Inspection.SubmittedAt,
+                InspectionType = r.Inspection.ChecklistTemplateId is Guid tid
+                    ? templates.GetValueOrDefault(tid)?.InspectionType.ToString() : null,
+                InspectorName = r.Inspection.InspectorName ?? users.GetValueOrDefault(r.Inspection.SurveyorId)?.DisplayName,
+                r.Inspection.SubmittedAt,
+                HasReview = r.Review?.StartedAt != null || r.Review?.ReviewedAt != null ||
+                    (r.Review != null && r.Review.Status != QcReviewStatus.PendingReview) || reviewedIds.Contains(r.Inspection.Id),
+                LastQcActivity = r.LastActivity
+            }));
     }
 
     [HttpGet("inspections/{inspectionId:guid}/photos/{photoId:guid}")]

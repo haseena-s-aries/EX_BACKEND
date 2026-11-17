@@ -38,7 +38,8 @@ internal static class InspectionActivityChecks
         db.Projects.Add(project); db.Tenants.Add(tenant); db.TenantContracts.Add(contract);
         db.TenantProjectBindings.Add(new TenantProjectBinding { TenantId = tenant.Id, ContractId = contract.Id, ProjectId = project.Id });
         var plan = new InspectionPlan { ProjectId = project.Id, Name = "Cycle 1" }; db.InspectionPlans.Add(plan);
-        var equipment = new AreaEquipment { ProjectId = project.Id, TagNumber = "P2D-001", Type = "Test", CreatedByUserId = inspector.Id };
+        var area = new ProjectArea {ProjectId = project.Id, AreaName = "Test Area"}; db.ProjectAreas.Add(area);
+        var equipment = new AreaEquipment { ProjectId = project.Id, AreaId = area.Id, TagNumber = "P2D-001", Type = "Test", CreatedByUserId = inspector.Id };
         db.AreaEquipment.Add(equipment);
         var planningCampaign = new InspectionCampaign {ProjectId=project.Id,Name="Synthetic campaign",Reference="ACT-CAMPAIGN",StartsOn=new DateOnly(2026,1,1),EndsOn=new DateOnly(2026,12,31),CreatedByUserId=inspector.Id};
         var workPackage = new InspectionWorkPackage {CampaignId=planningCampaign.Id,ProjectId=project.Id,Reference="WP-01",CreatedByUserId=inspector.Id};db.InspectionCampaigns.Add(planningCampaign);db.InspectionWorkPackages.Add(workPackage);
@@ -84,7 +85,8 @@ internal static class InspectionActivityChecks
         var mutableActor = new MutableActor(inspector.Id);
         var ownershipResolver = new InspectionTenantOwnershipResolver(db);
         var authorizer = new InspectionActivityAuthorizer(db, ownershipResolver, new TenantScopeResolver(db), new EmptyTenantContext(), mutableActor, Options.Create(new TenantFoundationOptions { Enabled = false }));
-        var workflow = new InspectionActivityApplicationService(db, authorizer, mutableActor, ownershipResolver, new CorrectiveActionPolicy(), Options.Create(new InspectionActivityOptions { Enabled = true }), TimeProvider.System);
+        var mailQueue = new CapturingMailQueue();
+        var workflow = new InspectionActivityApplicationService(db, authorizer, mutableActor, ownershipResolver, new CorrectiveActionPolicy(), Options.Create(new InspectionActivityOptions { Enabled = true }), TimeProvider.System, mailQueue);
         var invalidFindingRejected = false; try { await workflow.AddFindingAsync(visual.Id, new(response.Id, "Must be failed", null, null)); } catch (ArgumentException) { invalidFindingRejected = true; }
         Check(invalidFindingRejected, "application service rejects a finding attached to a non-failed checkpoint");
         var failedCheckpoint = new CheckpointResponseRevision { ActivityRevisionId = activityRevision.Id, CheckpointDefinitionSnapshotId = definition.Id, RevisionNumber = 3, ResponseCode = "Fail", Observation = "Seal defect", RecordedByUserId = inspector.Id };
@@ -120,10 +122,17 @@ internal static class InspectionActivityChecks
         var policy = new CorrectiveActionPolicy();
         action.Status = CorrectiveActionStatus.Verified;
         mutableActor.UserId=inspector.Id;await workflow.SubmitForReviewAsync(visual.Id);
+        mutableActor.UserId=reviewer.Id;
+        await workflow.RecordCheckpointReviewAsync(visual.Id,
+            new CheckpointReviewRequest(failedCheckpoint.Id, CheckpointReviewDecision.ChangesRequested, "Please add a close-up photo."));
+        Check(await db.UserAccessNotifications.AnyAsync(n => n.RecipientId == inspector.Id && n.InspectionActivityId == visual.Id && n.Title == "Checkpoint changes requested"), "checkpoint review comments create a linked Surveyor notification");
+        Check(mailQueue.Messages.Count == 1 && mailQueue.Messages[0].Recipient == inspector.Email, "checkpoint review comment queues email to the registered Surveyor address");
         mutableActor.UserId=reviewer.Id;await workflow.RecordReviewAsync(visual.Id,new ActivityReviewDecisionRequest(InspectionActivityReviewStatus.Accepted,"Accepted fixture"));
         Check(action.Status == CorrectiveActionStatus.Verified && db.ActivityFindings.All(x => x.StatusCode == "Open"), "activity acceptance does not close or mutate its findings/actions");
         Check(task.StatusCode=="Completed","QC acceptance completes only its planned work-package task");
         Check(visual.ReviewStatus == InspectionActivityReviewStatus.Accepted && db.ActivityReviewEvents.Count(x=>x.InspectionActivityId==visual.Id) == 2, "submission and review decision timestamps are retained");
+        Check(await db.UserAccessNotifications.AnyAsync(n => n.RecipientId == inspector.Id && n.InspectionActivityId == visual.Id && n.EquipmentId == equipment.Id), "QC decision creates a persistent Surveyor notification linked to the reviewed equipment");
+        Check(mailQueue.Messages.Count == 2 && mailQueue.Messages.All(message => message.Recipient == inspector.Email), "QC decision queues a Surveyor email without coupling review persistence to SMTP delivery");
         var immutableBlocked = false;
         try { InspectionActivityRules.EnsureRevisionAllowed(visual.ReviewStatus); } catch (InvalidOperationException) { immutableBlocked = true; }
         Check(immutableBlocked, "accepted activity cannot be edited as a new content revision");
@@ -182,14 +191,6 @@ internal static class InspectionActivityChecks
             .ToDictionary(g => g.Key!, g => g.Count());
         Check(previewPoints.GetArrayLength() == 59 && counts["Apparatus"] == 23 && counts["Installation"] == 33 &&
             counts["Environment"] == 3, "full PDF list is available before an inspection can be opened");
-        Check(await categoryController.OpenCategoryChecklist(project.Id, equipment.Id, date, authorizer, default) is ConflictObjectResult,
-            "category inspection requires approved sample versions");
-        var categorySource = SampleChecklistImporter.ReadSource();
-        foreach (var grade in Enum.GetValues<InspectionType>())
-            db.ChecklistTemplates.Add(new ChecklistTemplate {Id = SampleChecklistImporter.StableId($"{categorySource.SourceRevision}/{grade}"),
-                Name = $"Approved sample {grade}", InspectionType = grade, LifecycleStatus = ChecklistLifecycleStatus.Published,
-                IsActive = true, ApprovedByUserId = reviewer.Id, ApprovedAt = when});
-        await db.SaveChangesAsync();
         Check(await categoryController.OpenCategoryChecklist(Guid.NewGuid(), equipment.Id, date, authorizer, default) is NotFoundResult,
             "category inspection rejects equipment outside the selected project");
         var opened = (OkObjectResult)await categoryController.OpenCategoryChecklist(project.Id, equipment.Id, date, authorizer, default);
@@ -209,22 +210,51 @@ internal static class InspectionActivityChecks
         var categoryDefinitions = sourcePoints.Where(p => p.ApplicabilityCode == "Ex 'n' only").OrderBy(p => p.SortOrder).ToArray();
         var firstCategoryAnswer = await workflow.SaveCheckpointResponseAsync(categoryActivity.Id,
             new(categoryDefinitions[0].Id, null, "Fail", null, "Seal damage", Convert.ToBase64String(categoryActivity.RowVersion)));
+        var additional = new User { Email = "shared-inspection@example.test", DisplayName = "Additional Surveyor",
+            PasswordHash = "test", Role = UserRole.Surveyor, IsActive = true, ApprovalStatus = ApprovalStatus.Approved };
+        db.Users.Add(additional);
+        project.AdditionalSurveyorId = additional.Id;
+        await db.SaveChangesAsync();
+        mutableActor.UserId = additional.Id;
+        var previousVersion = Convert.ToBase64String(categoryActivity.RowVersion);
+        categoryActivity.RowVersion = [2];
+        await db.SaveChangesAsync();
+        var staleDraftRejected = false;
+        try { await workflow.SaveCheckpointResponseAsync(categoryActivity.Id,
+            new(categoryDefinitions[0].Id, null, "Pass", null, null, previousVersion)); }
+        catch (InspectionRequestConflictException) { staleDraftRejected = true; }
+        Check(staleDraftRejected, "a second Surveyor cannot overwrite a newer draft version");
+        await workflow.SaveCheckpointResponseAsync(categoryActivity.Id,
+            new(categoryDefinitions[0].Id, null, "Fail", null, "Shared follow-up", Convert.ToBase64String(categoryActivity.RowVersion)));
+        Check(categoryActivity.LastModifiedByUserId == additional.Id && categoryActivity.InspectorUserId != additional.Id,
+            "additional Surveyor edits the original draft and is recorded as the last modifier");
+        mutableActor.UserId = categoryAdmin.Id;
+        project.AdditionalSurveyorId = null;
+        await db.SaveChangesAsync();
+
         var findingRequest = new AddActivityFindingRequest(firstCategoryAnswer.Id, "Seal damage", null, null);
         var firstDefect = await workflow.AddFindingAsync(categoryActivity.Id, findingRequest);
         Check((await workflow.AddFindingAsync(categoryActivity.Id, findingRequest)).Id == firstDefect.Id,
             "raising a defect again preserves the original defect");
-        var incomplete = false;
-        try { await workflow.SubmitForReviewAsync(categoryActivity.Id); } catch (InvalidOperationException) { incomplete = true; }
-        Check(incomplete, "a partially answered category cannot be submitted");
+        Check(categoryActivity.ReviewStatus == InspectionActivityReviewStatus.Draft,
+            "a partially answered category remains an editable draft until the Surveyor submits it");
         await workflow.SaveCheckpointResponseAsync(categoryActivity.Id,
             new(categoryDefinitions[1].Id, null, "Pass", null, null, Convert.ToBase64String(categoryActivity.RowVersion)));
         var cleared = await workflow.SaveCheckpointResponseAsync(categoryActivity.Id,
             new(categoryDefinitions[1].Id, null, null, null, "Result cleared", Convert.ToBase64String(categoryActivity.RowVersion)));
-        var blankRejected = false;
-        try { await workflow.SubmitForReviewAsync(categoryActivity.Id); } catch (InvalidOperationException) { blankRejected = true; }
-        Check(cleared.ResponseCode is null && blankRejected, "clearing the latest result persists null and blocks submission even after a prior Pass");
+        Check(cleared.ResponseCode is null, "clearing the latest result persists the supported Blank state after a prior Pass");
         await workflow.SaveCheckpointResponseAsync(categoryActivity.Id,
             new(categoryDefinitions[1].Id, null, "Pass", null, null, Convert.ToBase64String(categoryActivity.RowVersion)));
+        Check(await categoryController.SaveEquipmentComments(categoryActivity.Id,
+            new(null, Convert.ToBase64String(categoryActivity.RowVersion), true), authorizer, default) is NoContentResult,
+            "category inspection can be saved on hold");
+        var holdBlocked = false;
+        try { await workflow.SubmitForReviewAsync(categoryActivity.Id); }
+        catch (InvalidOperationException error) { holdBlocked = error.Message.Contains("Resume the inspection"); }
+        Check(holdBlocked, "a fully answered inspection on hold cannot be submitted");
+        Check(await categoryController.SaveEquipmentComments(categoryActivity.Id,
+            new(null, Convert.ToBase64String(categoryActivity.RowVersion), false), authorizer, default) is NoContentResult,
+            "held category inspection can be resumed");
         Check((await workflow.SubmitForReviewAsync(categoryActivity.Id)).ReviewStatus == InspectionActivityReviewStatus.Submitted,
             "completed grade-free category submits to existing review workflow");
 
@@ -241,13 +271,16 @@ internal static class InspectionActivityChecks
         Check(await db.CheckpointDefinitionSnapshots.CountAsync(p => p.ChecklistVersionSnapshotId == nextCategory.ChecklistVersionId) == 2 &&
             await db.CheckpointDefinitionSnapshots.CountAsync(p => p.ChecklistVersionSnapshotId == categoryActivity.ChecklistVersionId) == 59,
             "saved selection applies to future inspections while historical checkpoints are preserved");
-        var equipmentSelection = new CategoryCheckpointSelection(["Environment/1"], 0);
+        var equipmentSelection = new CategoryCheckpointSelection(["Environment/1"], 0, null,
+            new() {["Environment/1"] = "Equipment-specific environment checkpoint"});
         Check(await categoryController.SaveCategorySelection(project.Id, equipmentSelection, authorizer, default, Guid.NewGuid()) is NotFoundResult &&
             await categoryController.SaveCategorySelection(project.Id, equipmentSelection, authorizer, default, equipment.Id) is OkObjectResult,
             "equipment selection requires equipment belonging to the selected project");
         var equipmentList = (OkObjectResult)await categoryController.CategoryChecklist(project.Id, equipment.Id, "All Checkpoints", null, authorizer, default);
-        Check(System.Text.Json.JsonSerializer.SerializeToElement(equipmentList.Value).EnumerateArray().Single().GetProperty("Code").GetString() == "Environment/1",
-            "equipment checklist overrides the project fallback");
+        var equipmentPoint = System.Text.Json.JsonSerializer.SerializeToElement(equipmentList.Value).EnumerateArray().Single();
+        Check(equipmentPoint.GetProperty("Code").GetString() == "Environment/1" &&
+              equipmentPoint.GetProperty("Text").GetString() == "Equipment-specific environment checkpoint",
+            "equipment checklist text overrides the project fallback without changing the default catalog");
         var surveyorCategory = new InspectionActivitiesController(db, workflow, Options.Create(new InspectionActivityOptions {Enabled = true}), null!)
         {
             ControllerContext = new ControllerContext {HttpContext = new DefaultHttpContext {User = new ClaimsPrincipal(
@@ -376,4 +409,10 @@ internal static class InspectionActivityChecks
     private sealed class EmptyTenantContext : ITenantContextAccessor { public AuthorizedTenantContext? Current => null; }
     private sealed class MutableActor(Guid userId) : IInspectionActivityActorContext { public Guid? UserId { get; set; } = userId; }
     private sealed class FixedActorContext(Guid userId) : IInspectionActivityActorContext { public Guid? UserId => userId; }
+}
+
+internal sealed class CapturingMailQueue : IAccountMailQueue
+{
+    public List<AccountMail> Messages { get; } = [];
+    public bool TryEnqueue(AccountMail message) { Messages.Add(message); return true; }
 }

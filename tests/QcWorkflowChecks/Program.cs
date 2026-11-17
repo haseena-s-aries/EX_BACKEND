@@ -9,7 +9,16 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 
+if (args.Contains("--inspect-backup")) {await BackupInspection.Run(args.Contains("--restore-approved-audit"), args.Contains("--read-audit"));return;}
+if(args.Contains("--equipment-sequence-checks")){await EquipmentSequenceChecks.Run();return;}
+if(args.Contains("--project-enhancement-checks")){await ProjectEnhancementChecks.Run();return;}
 var ct = CancellationToken.None;
+if (args.Contains("--user-access-checks")) {await UserAccessChecks.Run(); return;}
+if (args.Contains("--account-security-checks")) {await AccountSecurityChecks.Run(); return;}
+if (args.Contains("--qc-shared-modules-checks")) {await QcSharedModulesChecks.Run(); return;}
+if (args.Contains("--project-multi-client-checks")) {await ProjectMultiClientChecks.Run(); return;}
+if (args.Contains("--report-workflow-checks")) { await ReportWorkflowChecks.Run(); return; }
+if (args.Contains("--defect-report-checks")) { await DefectReportChecks.Run(); return; }
 if (args.Contains("--sample-checklist-checks")) { await SampleChecklistChecks.Run(); return; }
 if (args.Contains("--database-startup-checks")) { await DatabaseStartupChecks.Run(); return; }
 if (args.Contains("--project-http-checks")) { await ProjectUploadHttpChecks.Run(); return; }
@@ -131,6 +140,24 @@ Check(detail.Inspection!.ChecklistAnswers.Single().Value == "True", "Monitoring 
 Check(detail.History.Select(h => h.Action).SequenceEqual(new[] {"Surveyor Submitted", "QC Started Review", "QC Requested Changes", "QC Comments Updated", "Surveyor Resubmitted", "QC Started Review", "QC Approved"}), "Complete multi-round timeline");
 Check(detail.History.Single(h => h.Action == "QC Requested Changes").Comments == "Replace damaged seal", "Previous QC comments preserved");
 Check(detail.History.Single(h => h.Action == "QC Requested Changes").Severity == QcSeverity.High, "Previous severity preserved");
+// Monitoring must retain separate inspection versions for the same equipment.
+var newerSession = new SurveySession {AreaEquipmentId = equipment.Id, SurveyorId = surveyor.Id,
+    ChecklistTemplateId = template.Id, SubmittedAt = DateTimeOffset.UtcNow, CreatedAt = DateTimeOffset.UtcNow.AddDays(1)};
+db.SurveySessions.Add(newerSession); await db.SaveChangesAsync(ct);
+var historicalDetail = Value<ManagerQcInspection>(await monitor.Inspection(equipment.Id, ct, inspectionId));
+Check(historicalDetail.Inspection!.InspectionId == inspectionId && historicalDetail.History.Any(h => h.Action == "QC Approved"), "Inspection-specific history retains old approvals");
+Check(Value<ManagerQcInspection>(await monitor.Inspection(equipment.Id, ct)).Inspection!.InspectionId == newerSession.Id, "Default equipment detail selects latest inspection without throwing");
+Check((await monitor.Inspection(untouched.Id, ct, inspectionId)).Result is NotFoundResult, "Inspection ID cannot cross equipment boundaries");
+Check(await otherMonitor.Records(project.Id, ct) is NotFoundResult, "Review records enforce existing project scope");
+var recordsResult = (OkObjectResult)await monitor.Records(project.Id, ct);
+var recordJson = System.Text.Json.JsonSerializer.SerializeToElement(recordsResult.Value);
+var sameEquipment = recordJson.EnumerateArray().Where(r => r.GetProperty("Equipment").GetProperty("EquipmentId").GetGuid() == equipment.Id).ToArray();
+Check(sameEquipment.Length == 2, "Records include distinct historical inspections for one equipment item");
+Check(sameEquipment.Single(r => r.GetProperty("Equipment").GetProperty("InspectionId").GetGuid() == inspectionId).GetProperty("HasReview").GetBoolean(), "Approved history is classified as reviewed");
+Check(!sameEquipment.Single(r => r.GetProperty("Equipment").GetProperty("InspectionId").GetGuid() == newerSession.Id).GetProperty("HasReview").GetBoolean(), "Submission alone is not classified as reviewed");
+
+db.SurveySessions.Remove(newerSession); await db.SaveChangesAsync(ct);
+
 Check((await survey.UpdateInspection(inspectionId, payload, ct)).Result is ConflictObjectResult, "Approved checklist remains locked");
 Check((await reviewController.RequestChanges(inspectionId, new("Try edit", QcSeverity.Low), ct)).Result is ConflictObjectResult, "Approved QC remains locked");
 var photo = new SurveyFile {SurveySessionId = inspectionId, FileName = "image.png", StorageKey = "image.png", ContentType = "image/png", UploadedById = surveyor.Id, Category = FileCategory.EquipmentPhoto};
@@ -161,14 +188,31 @@ foreach (var denied in new[] {unrelatedReview, otherQcReview})
     Check((await denied.RequestChanges(inspectionId, new("Attempt", QcSeverity.High), ct)).Result is ObjectResult {StatusCode: 403}, "Out-of-scope changes denied");
     Check((await denied.UpdateComments(inspectionId, new("Attempt"), ct)).Result is ObjectResult {StatusCode: 403}, "Out-of-scope comments denied");
 }
+var teamEdit = new UpsertProjectRequest(project.ProjectName, project.Sector, project.JobNo,
+    project.Location, project.VesselOrSiteName, surveyor.Id, qc.Id, ClientName: "Test Client Company", TargetDate: DateOnly.FromDateTime(DateTime.Today),
+    AdditionalQcId: qc.Id, UpdateAdditionalQcAssignment: true);
+Check((await projectController.UpdateProject(project.Id, teamEdit, ct)).Result is BadRequestObjectResult,
+    "Primary QC cannot also be the additional QC");
+teamEdit = teamEdit with { AdditionalQcId = otherQc.Id };
+Check((await projectController.UpdateProject(project.Id, teamEdit, ct)).Result is OkObjectResult,
+    "Scoped Manager can assign additional QC");
+Check((await projectController.UpdateProject(project.Id, teamEdit with { AdditionalQcId = null, UpdateAdditionalQcAssignment = false }, ct)).Result is OkObjectResult
+    && project.AdditionalQcId == otherQc.Id, "Older project edits preserve the additional QC");
+Check(db.AuditLogs.Count(a => a.EntityId == project.Id && a.Action == "QC Assignment") == 1,
+    "Assignment change is recorded once");
 await survey.CreateInspection(untouched.Id, payload, ct);
 var sharedId = db.SurveySessions.Single(s => s.AreaEquipmentId == untouched.Id).Id;
+Check(Value<IEnumerable<QcProjectSummaryResponse>>(await otherQcReview.GetProjects(ct, pendingOnly: true)).Single().ProjectId == project.Id,
+    "Additional QC sees pending inspections for the assigned project");
+Check((await otherQcReview.GetProject(project.Id, ct)).Result is OkObjectResult, "Additional QC can open the assigned project");
 Check((await managerReview.StartReview(sharedId, ct)).Result is OkObjectResult, "Manager starts the same QC review");
 Check((await managerReview.UpdateComments(sharedId, new("Manager initial comment"), ct)).Result is OkObjectResult, "Manager saves QC comments");
 Check((await managerReview.RequestChanges(sharedId, new("Manager requests seal check", QcSeverity.Critical), ct)).Result is OkObjectResult, "Manager requests changes with severity");
 await survey.UpdateInspection(sharedId, payload with {Comments = "Seal checked"}, ct);
 Check(db.QcReviews.Single(q => q.SurveySessionId == sharedId).Status == QcReviewStatus.PendingReview, "Manager change request follows existing Surveyor resubmission");
-Check((await reviewController.StartReview(sharedId, ct)).Result is OkObjectResult, "Assigned QC continues Manager's review after resubmission");
+Check((await otherQcReview.StartReview(sharedId, ct)).Result is OkObjectResult, "Additional QC continues the existing review after resubmission");
+Check(db.QcReviews.Single(q => q.SurveySessionId == sharedId).ReviewedByUserId == otherQc.Id,
+    "Existing review records the additional QC actor");
 Check((await managerReview.Approve(sharedId, new("Manager final approval"), ct)).Result is OkObjectResult, "Manager approves the existing QC review");
 var sharedReview = db.QcReviews.Single(q => q.SurveySessionId == sharedId);
 Check(sharedReview.Status == QcReviewStatus.Approved && sharedReview.ReviewedByUserId == manager.Id, "Same review records actual Manager reviewer");
@@ -196,7 +240,7 @@ Check(scopeQuery.ToQueryString().Contains("ManagerId"), "Manager scope translate
 var rowsQuery = (IQueryable)queries.GetMethod("ReviewRows", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(sqlController, [new[] {project.Id}])!;
 var sql = rowsQuery.ToQueryString();
 Check(sql.Contains("LEFT JOIN") && sql.Contains("AuditLogs"), "Equipment, inspection and history query translates to SQL Server");
-var writeProject = new UpsertProjectRequest("New project", "Marine", "JOB-3", "Dubai", "Site", surveyor.Id, qc.Id, client.Id);
+var writeProject = new UpsertProjectRequest("New project", "Marine", "JOB-3", "Dubai", "Site", surveyor.Id, qc.Id, client.Id, ClientName: "Test Client Company", TargetDate: ProjectScheduling.Today.AddDays(30));
 var createdProject = await projectController.CreateProject(writeProject, ct);
 Check(createdProject.Result is CreatedAtActionResult, "Project creation still succeeds with reporting managers");
 var newProjectId = db.Projects.Single(p => p.JobNo == "JOB-3").Id;

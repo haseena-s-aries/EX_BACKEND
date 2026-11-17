@@ -17,7 +17,8 @@ public class TokenService(JwtSettings settings)
         {
             new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
             new Claim(ClaimTypes.Email, user.Email),
-            new Claim(ClaimTypes.Role, user.Role.ToString())
+            new Claim(ClaimTypes.Role, user.Role.ToString()),
+            new Claim("auth_version", user.AuthVersion.ToString(System.Globalization.CultureInfo.InvariantCulture))
         };
         var credentials = new SigningCredentials(
             new SymmetricSecurityKey(Encoding.UTF8.GetBytes(settings.SigningKey)),
@@ -25,5 +26,11 @@ public class TokenService(JwtSettings settings)
         var token = new JwtSecurityToken(settings.Issuer, settings.Audience, claims,
             expires: expiresAt.UtcDateTime, signingCredentials: credentials);
         return (new JwtSecurityTokenHandler().WriteToken(token), expiresAt);
+    }
+
+    public static bool IsCurrentSession(ClaimsPrincipal principal, User user)
+    {
+        var claim = principal.FindFirstValue("auth_version");
+        return claim is null ? user.AuthVersion == 0 : int.TryParse(claim, out var version) && version == user.AuthVersion;
     }
 }

@@ -1,4 +1,4 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using System.Security.Cryptography;
 using Ex_SurveyApp_api.Data;
 using Ex_SurveyApp_api.Attributes;
@@ -25,7 +25,7 @@ public class SurveyorController(
         CancellationToken cancellationToken)
     {
         var projectCounts = await db.Projects.AsNoTracking()
-            .Where(x => x.AssignedSurveyorId == CurrentUserId)
+            .Where(x => (x.AssignedSurveyorId == CurrentUserId || x.AdditionalSurveyorId == CurrentUserId))
             .GroupBy(_ => 1)
             .Select(group => new
             {
@@ -45,7 +45,7 @@ public class SurveyorController(
             join review in db.QcReviews.AsNoTracking()
                 on inspection.Id equals review.SurveySessionId into reviewGroup
             from review in reviewGroup.DefaultIfEmpty()
-            where project.AssignedSurveyorId == CurrentUserId && inspection.SubmittedAt != null
+            where (project.AssignedSurveyorId == CurrentUserId || project.AdditionalSurveyorId == CurrentUserId) && inspection.SubmittedAt != null
             select new { ReviewStatus = (QcReviewStatus?)review.Status })
             .ToListAsync(cancellationToken);
 
@@ -59,7 +59,7 @@ public class SurveyorController(
                 on equipment.ProjectId equals project.Id
             join area in db.ProjectAreas.AsNoTracking()
                 on equipment.AreaId equals area.Id
-            where project.AssignedSurveyorId == CurrentUserId
+            where (project.AssignedSurveyorId == CurrentUserId || project.AdditionalSurveyorId == CurrentUserId)
                   && review.Status == QcReviewStatus.ChangesRequested
             orderby review.ReviewedAt descending, equipment.SequenceNo
             select new SurveyorQcFeedbackResponse(
@@ -87,19 +87,105 @@ public class SurveyorController(
             feedback));
     }
 
+    [HttpGet("pending-tasks")]
+    public async Task<IActionResult> PendingTasks(CancellationToken ct)
+    {
+        var tasks = await (from project in db.Projects.AsNoTracking()
+                           join plan in db.InspectionPlans on (Guid?)project.Id equals plan.ProjectId
+                           join task in db.InspectionTasks on plan.Id equals task.InspectionPlanId
+                           join equipment in db.AreaEquipment on task.AreaEquipmentId equals (Guid?)equipment.Id
+                           where equipment.ProjectId == project.Id &&
+                               (project.AssignedSurveyorId == CurrentUserId || project.AdditionalSurveyorId == CurrentUserId) &&
+                               (task.StatusCode == "Planned" || task.StatusCode == "InProgress") &&
+                               (task.AssignedUserId == project.AssignedSurveyorId || task.AssignedUserId == project.AdditionalSurveyorId) &&
+                               !db.InspectionActivities.Any(a => a.InspectionTaskId == task.Id &&
+                                   a.ReviewStatus != InspectionActivityReviewStatus.Draft &&
+                                   a.ReviewStatus != InspectionActivityReviewStatus.ChangesRequested)
+                           orderby task.ScheduledAt, task.Id
+                           select new { task.Id, projectId = project.Id, project.ProjectName, equipment.TagNumber,
+                               task.StatusCode, task.PlannedGrade, task.ScheduledAt }).Take(100).ToListAsync(ct);
+        return Ok(tasks);
+    }
+
+    [HttpGet("drafts")]
+    public async Task<IActionResult> Drafts(CancellationToken ct)
+    {
+        var drafts = await (from project in db.Projects.AsNoTracking()
+                            join plan in db.InspectionPlans on (Guid?)project.Id equals plan.ProjectId
+                            join task in db.InspectionTasks on plan.Id equals task.InspectionPlanId
+                            join activity in db.InspectionActivities on task.Id equals activity.InspectionTaskId
+                            join equipment in db.AreaEquipment on task.AreaEquipmentId equals (Guid?)equipment.Id
+                            where equipment.ProjectId == project.Id &&
+                                (project.AssignedSurveyorId == CurrentUserId || project.AdditionalSurveyorId == CurrentUserId) &&
+                                (activity.ReviewStatus == InspectionActivityReviewStatus.Draft ||
+                                 activity.ReviewStatus == InspectionActivityReviewStatus.ChangesRequested)
+                            orderby activity.UpdatedAt descending
+                            select new
+                            {
+                                activity.Id, projectId = project.Id, project.ProjectName, equipmentId = equipment.Id,
+                                equipment.TagNumber, activity.Grade, activity.ReviewStatus, activity.UpdatedAt, activity.StartedAt,
+                                activity.ChecklistVersionId,
+                                lastUserId = activity.LastModifiedByUserId ?? activity.InspectorUserId,
+                                revision = db.InspectionActivityRevisions.Where(r => r.InspectionActivityId == activity.Id)
+                                    .OrderByDescending(r => r.RevisionNumber).Select(r => r.Id).FirstOrDefault()
+                            }).Take(100).ToListAsync(ct);
+        var versions = drafts.Select(x => x.ChecklistVersionId).Distinct().ToArray();
+        var totals = await db.CheckpointDefinitionSnapshots.Where(x => versions.Contains(x.ChecklistVersionSnapshotId))
+            .GroupBy(x => x.ChecklistVersionSnapshotId).Select(g => new { g.Key, Count = g.Count() })
+            .ToDictionaryAsync(g => g.Key, g => g.Count, ct);
+        var revisions = drafts.Select(x => x.revision).ToArray();
+        var answers = await db.CheckpointResponseRevisions.Where(x => revisions.Contains(x.ActivityRevisionId))
+            .Select(x => new { x.ActivityRevisionId, x.CheckpointDefinitionSnapshotId, x.RevisionNumber, x.ResponseCode }).ToListAsync(ct);
+        var answered = answers.GroupBy(x => x.ActivityRevisionId).ToDictionary(g => g.Key, g =>
+            g.GroupBy(x => x.CheckpointDefinitionSnapshotId).Count(point =>
+                point.OrderByDescending(x => x.RevisionNumber).First().ResponseCode is "Pass" or "Fail" or "NA"));
+        var userIds = drafts.Select(x => x.lastUserId).Distinct().ToArray();
+        var names = await db.Users.Where(x => userIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id, x => x.DisplayName, ct);
+        var legacy = await (from session in db.SurveySessions.AsNoTracking()
+                            join equipment in db.AreaEquipment on session.AreaEquipmentId equals (Guid?)equipment.Id
+                            join project in db.Projects on equipment.ProjectId equals project.Id
+                            where (project.AssignedSurveyorId == CurrentUserId || project.AdditionalSurveyorId == CurrentUserId) &&
+                                (session.Status == SurveyStatus.Draft || session.Status == SurveyStatus.Returned)
+                            orderby session.UpdatedAt descending
+                            select new DraftSummary(session.Id, project.Id, project.ProjectName, equipment.Id, equipment.TagNumber,
+                                null, session.Status.ToString(), session.UpdatedAt, session.CreatedAt,
+                                db.SurveyAnswers.Count(a => a.SurveySessionId == session.Id && a.Value == "True"),
+                                db.SurveyAnswers.Count(a => a.SurveySessionId == session.Id),
+                                db.Users.Where(u => u.Id == (session.LastModifiedByUserId ?? session.SurveyorId))
+                                    .Select(u => u.DisplayName).FirstOrDefault(), true)).Take(100).ToListAsync(ct);
+        return Ok(drafts.Select(x => new DraftSummary(x.Id, x.projectId, x.ProjectName, x.equipmentId, x.TagNumber,
+            x.Grade, x.ReviewStatus.ToString(), x.UpdatedAt, x.StartedAt, answered.GetValueOrDefault(x.revision),
+            totals.GetValueOrDefault(x.ChecklistVersionId), names.GetValueOrDefault(x.lastUserId), false))
+            .Concat(legacy).OrderByDescending(x => x.UpdatedAt).Take(100));
+    }
+
+    private sealed record DraftSummary(Guid Id, Guid ProjectId, string ProjectName, Guid EquipmentId, string TagNumber,
+        InspectionType? Grade, string ReviewStatus, DateTimeOffset UpdatedAt, DateTimeOffset StartedAt,
+        int Answered, int Total, string? LastUpdatedBy, bool IsLegacy);
+
     [HttpGet("projects")]
     public async Task<ActionResult<IEnumerable<SurveyorProjectSummaryResponse>>> GetProjects(
         CancellationToken cancellationToken)
     {
         var projects = await db.Projects.AsNoTracking()
-            .Where(x => x.AssignedSurveyorId == CurrentUserId)
+            .Where(x => (x.AssignedSurveyorId == CurrentUserId || x.AdditionalSurveyorId == CurrentUserId))
             .OrderByDescending(x => x.UpdatedAt)
             .Select(x => new SurveyorProjectSummaryResponse(
                 x.Id, x.ProjectName, x.Sector, x.JobNo, x.Location, x.VesselOrSiteName,
-                x.CreatedAt, x.Status, x.Areas.Count))
+                x.CreatedAt, x.Status, x.Areas.Count,
+                x.AssignedSurveyorId == CurrentUserId && db.AuditLogs.Any(a => a.EntityType == "Project" &&
+                    a.EntityId == x.Id && a.Action == "Surveyor Assignment" && a.Comments != null &&
+                    a.Comments.Contains("\"Type\":\"Full\"") &&
+                    a.Comments.Contains("\"NewSurveyorId\":\"" + CurrentUserId.ToString() + "\"")), db.ProjectReportWorkflows.Where(w => w.ProjectId == x.Id).Select(w => w.Status).FirstOrDefault() ?? "Ongoing"))
             .ToListAsync(cancellationToken);
 
-        return Ok(projects);
+        var ids = projects.Select(p => p.ProjectId).ToArray();
+        var schedules = await db.ProjectScheduleEntries.AsNoTracking().Where(e => ids.Contains(e.ProjectId) && e.Kind == "Schedule").ToListAsync(cancellationToken);
+        var sources = await db.Projects.AsNoTracking().Where(p => ids.Contains(p.Id)).ToDictionaryAsync(p => p.Id, cancellationToken);
+        var byProject = schedules.ToLookup(e => e.ProjectId);
+        return Ok(projects.Select(p => p with {Schedule = ProjectScheduling.Summarize(sources[p.ProjectId].Status,
+            sources[p.ProjectId].TargetDate, sources[p.ProjectId].AssignedSurveyorId, sources[p.ProjectId].AdditionalSurveyorId,
+            byProject[p.ProjectId], ProjectScheduling.Today)}));
     }
 
     [HttpGet("projects/{projectId:guid}")]
@@ -118,7 +204,9 @@ public class SurveyorController(
             .AsSplitQuery()
             .SingleAsync(x => x.Id == projectId, cancellationToken);
 
-        var userIds = new Guid?[] { project.AssignedSurveyorId, project.AssignedQcId, project.AssignedClientId };
+        var assignedClients = await db.ProjectClientAssignments.AsNoTracking().Where(a => a.ProjectId == project.Id && a.IsActive)
+            .Select(a => a.ClientUserId).ToArrayAsync(cancellationToken);
+        var userIds = new Guid?[] { project.AssignedSurveyorId, project.AssignedQcId, project.AssignedClientId }.Concat(assignedClients.Select(id => (Guid?)id)).ToArray();
         var names = await db.Users.AsNoTracking()
             .Where(x => userIds.Contains(x.Id))
             .ToDictionaryAsync(x => x.Id, x => x.DisplayName, cancellationToken);
@@ -128,8 +216,8 @@ public class SurveyorController(
             project.VesselOrSiteName, project.CreatedAt, project.Status,
             names.GetValueOrDefault(project.AssignedSurveyorId, string.Empty),
             names.GetValueOrDefault(project.AssignedQcId, string.Empty),
-            project.AssignedClientId.HasValue ? names.GetValueOrDefault(project.AssignedClientId.Value, string.Empty) : "Not assigned",
-            project.Areas.OrderBy(x => x.CreatedAt).Select(x => ToAreaSummary(projectId, x)).ToArray()));
+            string.Join(", ", assignedClients.Concat(project.AssignedClientId is Guid legacyClient ? new[] {legacyClient} : Array.Empty<Guid>()).Distinct().Select(id => names.GetValueOrDefault(id, string.Empty))) is {Length: > 0} clientNames ? clientNames : "Not assigned",
+            project.Areas.OrderBy(x => x.CreatedAt).Select(x => ToAreaSummary(projectId, x)).ToArray(), project.TargetDate, await db.ProjectReportWorkflows.Where(w => w.ProjectId == projectId).Select(w => w.Status).FirstOrDefaultAsync(cancellationToken) ?? "Ongoing"));
     }
 
     [HttpGet("projects/{projectId:guid}/areas")]
@@ -319,6 +407,9 @@ public class SurveyorController(
         if (!await AreaExists(projectId, areaId, cancellationToken))
             return NotFound(new { error = "Project area was not found." });
 
+        if (!await LayoutImageBelongsToProject(request.LayoutImageKey, projectId, areaId, cancellationToken))
+            return BadRequest(new { error = "Select an image uploaded to this project or area." });
+
         var validationError = ValidateRequest(request);
         if (validationError is not null)
             return validationError;
@@ -352,14 +443,13 @@ public class SurveyorController(
                 x => x.RfidTagUid == rfidTagUid, cancellationToken))
             return Conflict(new { error = "RFID tag UID is already assigned to another asset." });
 
-        await using var transaction = db.Database.IsRelational()
+        await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction == null
             ? await db.Database.BeginTransactionAsync(
                 System.Data.IsolationLevel.Serializable, cancellationToken)
             : null;
 
-        var nextSequenceNo = (await db.AreaEquipment
-            .Where(x => x.AreaId == areaId)
-            .MaxAsync(x => (int?)x.SequenceNo, cancellationToken) ?? 0) + 1;
+        // Final project-wide sequence is allocated under the shared save lock.
+        var nextSequenceNo = 0;
         var now = DateTimeOffset.UtcNow;
         var equipment = new AreaEquipment
         {
@@ -370,6 +460,7 @@ public class SurveyorController(
             XPercent = request.XPercent,
             YPercent = request.YPercent,
             IsPlacedOnLayout = request.IsPlacedOnLayout,
+            LayoutImageKey = request.LayoutImageKey,
             TagNumber = tagNumber,
             EquipmentCode = TrimOrNull(request.EquipmentId),
             RfidTagUid = rfidTagUid,
@@ -436,6 +527,9 @@ public class SurveyorController(
         if (!await AreaExists(projectId, areaId, cancellationToken))
             return NotFound(new { error = "Project area was not found." });
 
+        if (!await LayoutImageBelongsToProject(request.LayoutImageKey, projectId, areaId, cancellationToken))
+            return BadRequest(new { error = "Select an image uploaded to this project or area." });
+
         var validationError = ValidateRequest(request);
         if (validationError is not null)
             return validationError;
@@ -462,6 +556,7 @@ public class SurveyorController(
         equipment.XPercent = request.XPercent;
         equipment.YPercent = request.YPercent;
         equipment.IsPlacedOnLayout = request.IsPlacedOnLayout;
+        if (request.LayoutImageKey is not null) equipment.LayoutImageKey = request.LayoutImageKey;
         equipment.TagNumber = tagNumber;
         equipment.EquipmentCode = TrimOrNull(request.EquipmentId);
         equipment.RfidTagUid = rfidTagUid;
@@ -579,7 +674,7 @@ public class SurveyorController(
                     ProjectId = projectId, AreaEquipmentId = equipmentId,
                     Category = FileCategory.EquipmentPhoto, EquipmentPhotoRole = role,
                     FileName = stored.OriginalFileName, StorageKey = stored.RelativePath,
-                    ContentType = file.ContentType, UploadedById = CurrentUserId,
+                    ContentType = stored.IsPdf ? "application/pdf" : file.ContentType, UploadedById = CurrentUserId,
                     UploadedAt = DateTimeOffset.UtcNow
                 });
             }
@@ -623,6 +718,19 @@ public class SurveyorController(
         return Ok(rows);
     }
 
+    [HttpDelete("projects/{projectId:guid}/areas/{areaId:guid}/equipment/{equipmentId:guid}/photos/{photoId:guid}")]
+    public async Task<IActionResult> DeleteEquipmentPhoto(Guid projectId, Guid areaId, Guid equipmentId, Guid photoId, CancellationToken cancellationToken)
+    {
+        var access = await CheckProjectAccess(projectId, cancellationToken);
+        if (access != ProjectAccess.Allowed) return ProjectAccessError(access);
+        if (!await db.AreaEquipment.AnyAsync(e => e.Id == equipmentId && e.AreaId == areaId && e.ProjectId == projectId, cancellationToken)) return NotFound();
+        var photo = await db.Files.SingleOrDefaultAsync(f => f.Id == photoId && f.ProjectId == projectId && f.AreaEquipmentId == equipmentId && f.Category == FileCategory.EquipmentPhoto && f.SurveySessionId == null, cancellationToken);
+        if (photo is null) return NotFound();
+        // Preserve original stored evidence and its audit reference; remove only the live form association.
+        db.AuditLogs.Add(new AuditLog {EntityType="EquipmentPhoto", EntityId=equipmentId, ActorId=CurrentUserId, Action="Equipment Photo Removed", Comments=photo.Id + " " + photo.StorageKey});
+        db.Files.Remove(photo); await db.SaveChangesAsync(cancellationToken); return NoContent();
+    }
+
     [HttpGet("projects/{projectId:guid}/areas/{areaId:guid}/equipment/{equipmentId:guid}/photos/{photoId:guid}")]
     public async Task<IActionResult> DownloadEquipmentPhoto(
         Guid projectId, Guid areaId, Guid equipmentId, Guid photoId, CancellationToken cancellationToken)
@@ -645,7 +753,7 @@ public class SurveyorController(
         var context = await GetEquipmentContext(equipmentId, tracking: false, cancellationToken);
         if (context is null)
             return NotFound(new { error = "Equipment was not found." });
-        if (context.Project.AssignedSurveyorId != CurrentUserId)
+        if ((context.Project.AssignedSurveyorId != CurrentUserId && context.Project.AdditionalSurveyorId != CurrentUserId))
             return ProjectForbidden();
 
         var inspection = await GetInspectionInfo(equipmentId, cancellationToken);
@@ -674,7 +782,7 @@ public class SurveyorController(
             return NotFound(new { error = "No equipment is linked to this RFID tag." });
 
         var context = await GetEquipmentContext(equipmentId.Value, tracking: false, cancellationToken);
-        if (context is null || context.Project.AssignedSurveyorId != CurrentUserId)
+        if (context is null || (context.Project.AssignedSurveyorId != CurrentUserId && context.Project.AdditionalSurveyorId != CurrentUserId))
             return NotFound(new { error = "No equipment is linked to this RFID tag." });
 
         var inspection = await GetInspectionInfo(equipmentId.Value, cancellationToken);
@@ -688,7 +796,7 @@ public class SurveyorController(
         var context = await GetEquipmentContext(equipmentId, tracking: false, cancellationToken);
         if (context is null)
             return NotFound(new { error = "Equipment was not found." });
-        if (context.Project.AssignedSurveyorId != CurrentUserId)
+        if ((context.Project.AssignedSurveyorId != CurrentUserId && context.Project.AdditionalSurveyorId != CurrentUserId))
             return ProjectForbidden();
 
         var inspection = await db.SurveySessions.AsNoTracking().SingleOrDefaultAsync(
@@ -706,7 +814,7 @@ public class SurveyorController(
         var context = await GetEquipmentContext(equipmentId, tracking: false, cancellationToken);
         if (context is null)
             return NotFound(new { error = "Equipment was not found." });
-        if (context.Project.AssignedSurveyorId != CurrentUserId)
+        if ((context.Project.AssignedSurveyorId != CurrentUserId && context.Project.AdditionalSurveyorId != CurrentUserId))
             return ProjectForbidden();
         if (await db.SurveySessions.AnyAsync(x => x.AreaEquipmentId == equipmentId, cancellationToken))
             return Conflict(new { error = "An inspection already exists for this equipment." });
@@ -756,13 +864,19 @@ public class SurveyorController(
         var context = await GetInspectionContext(inspectionId, cancellationToken);
         if (context is null)
             return NotFound(new { error = "Inspection was not found." });
-        if (context.Project.AssignedSurveyorId != CurrentUserId)
+        if ((context.Project.AssignedSurveyorId != CurrentUserId && context.Project.AdditionalSurveyorId != CurrentUserId))
             return ProjectForbidden();
 
         var review = await db.QcReviews.SingleOrDefaultAsync(
             x => x.SurveySessionId == inspectionId, cancellationToken);
         if (IsInspectionLocked(context.Inspection, review))
             return Conflict(new { error = "This inspection is QC approved and locked." });
+
+        if (context.Inspection.Status == SurveyStatus.Submitted && review?.Status != QcReviewStatus.ChangesRequested)
+            return Conflict(new { error = "Submitted inspections are read-only while awaiting review." });
+        if ((request.ExpectedUpdatedAt.HasValue && request.ExpectedUpdatedAt != context.Inspection.UpdatedAt) ||
+            (!request.ExpectedUpdatedAt.HasValue && context.Project.AdditionalSurveyorId.HasValue))
+            return Conflict(new { error = "Another Surveyor may have saved changes. Reload the inspection before saving." });
 
         var validation = await ValidateInspectionRequest(request, cancellationToken, inspectionId);
         if (validation.Error is not null)
@@ -771,13 +885,15 @@ public class SurveyorController(
         var resubmission = context.Inspection.Status == SurveyStatus.Returned || review?.Status == QcReviewStatus.ChangesRequested;
         var firstSubmission = context.Inspection.SubmittedAt == null;
         var now = DateTimeOffset.UtcNow;
-        context.Inspection.InspectorName = request.InspectorName.Trim();
+        if (context.Inspection.SurveyorId == CurrentUserId)
+            context.Inspection.InspectorName = request.InspectorName.Trim();
         context.Inspection.SurveyorRemarks = TrimOrNull(request.Comments);
         context.Inspection.InspectionTimestamp = request.InspectionDate!.Value;
         context.Inspection.Status = request.IsCompleted ? SurveyStatus.Submitted : SurveyStatus.Draft;
         context.Inspection.SubmittedAt = request.IsCompleted ? now : null;
         context.Inspection.DueDate = request.IsCompleted ? now.AddDays(7) : null;
         context.Inspection.UpdatedAt = now;
+        context.Inspection.LastModifiedByUserId = CurrentUserId;
 
         var answers = await db.SurveyAnswers
             .Where(x => x.SurveySessionId == inspectionId)
@@ -809,7 +925,8 @@ public class SurveyorController(
 
         if (request.IsCompleted && (firstSubmission || resubmission))
             QcWorkflowHistory.Record(db, inspectionId, CurrentUserId, resubmission ? "Surveyor Resubmitted" : "Surveyor Submitted", comments: context.Inspection.SurveyorRemarks);
-        await db.SaveChangesAsync(cancellationToken);
+        try { await db.SaveChangesAsync(cancellationToken); }
+        catch (DbUpdateConcurrencyException) { return Conflict(new { error = "The inspection changed. Reload it before saving." }); }
         return Ok(await BuildInspectionResponse(context.Inspection, cancellationToken));
     }
 
@@ -861,7 +978,7 @@ public class SurveyorController(
         var context = await GetInspectionContext(inspectionId, cancellationToken);
         if (context is null)
             return NotFound(new { error = "Inspection was not found." });
-        if (context.Project.AssignedSurveyorId != CurrentUserId)
+        if ((context.Project.AssignedSurveyorId != CurrentUserId && context.Project.AdditionalSurveyorId != CurrentUserId))
             return ProjectForbidden();
         var review = await db.QcReviews.AsNoTracking().SingleOrDefaultAsync(
             x => x.SurveySessionId == inspectionId, cancellationToken);
@@ -873,6 +990,10 @@ public class SurveyorController(
             return BadRequest(new { error = $"A maximum of {photoStorage.MaxFilesPerRequest} photos can be uploaded at once." });
 
         var storedPaths = new List<string>();
+        if (context.Inspection.Status == SurveyStatus.Submitted &&
+            (context.Inspection.LastModifiedByUserId ?? context.Inspection.SurveyorId) != CurrentUserId)
+            return Conflict(new { error = "This submitted inspection is read-only." });
+
         var photos = new List<SurveyFile>();
         try
         {
@@ -887,13 +1008,20 @@ public class SurveyorController(
                     Category = FileCategory.EquipmentPhoto,
                     FileName = stored.OriginalFileName,
                     StorageKey = stored.RelativePath,
-                    ContentType = file.ContentType,
+                    ContentType = stored.IsPdf ? "application/pdf" : file.ContentType,
                     UploadedById = CurrentUserId
                 });
             }
 
             db.Files.AddRange(photos);
+            context.Inspection.UpdatedAt = DateTimeOffset.UtcNow;
+            context.Inspection.LastModifiedByUserId = CurrentUserId;
             await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            await DeleteStoredFiles(storedPaths);
+            return Conflict(new { error = "The inspection changed. Reload it before adding photos." });
         }
         catch (ProjectPhotoValidationException ex)
         {
@@ -917,7 +1045,7 @@ public class SurveyorController(
         var context = await GetInspectionContext(inspectionId, cancellationToken, tracking: false);
         if (context is null)
             return NotFound(new { error = "Inspection was not found." });
-        if (context.Project.AssignedSurveyorId != CurrentUserId)
+        if ((context.Project.AssignedSurveyorId != CurrentUserId && context.Project.AdditionalSurveyorId != CurrentUserId))
             return ProjectForbidden();
         var photo = await db.Files.AsNoTracking().SingleOrDefaultAsync(
             x => x.Id == photoId && x.SurveySessionId == inspectionId &&
@@ -937,11 +1065,11 @@ public class SurveyorController(
         var context = await GetInspectionContext(inspectionId, cancellationToken);
         if (context is null)
             return NotFound(new { error = "Inspection was not found." });
-        if (context.Project.AssignedSurveyorId != CurrentUserId)
+        if ((context.Project.AssignedSurveyorId != CurrentUserId && context.Project.AdditionalSurveyorId != CurrentUserId))
             return ProjectForbidden();
         var review = await db.QcReviews.AsNoTracking().SingleOrDefaultAsync(
             x => x.SurveySessionId == inspectionId, cancellationToken);
-        if (IsInspectionLocked(context.Inspection, review))
+        if (IsInspectionLocked(context.Inspection, review) || context.Inspection.Status == SurveyStatus.Submitted)
             return Conflict(new { error = "This inspection is QC approved and locked." });
 
         var photo = await db.Files.SingleOrDefaultAsync(
@@ -950,7 +1078,10 @@ public class SurveyorController(
         if (photo is null)
             return NotFound(new { error = "Inspection photo was not found." });
         db.Files.Remove(photo);
-        await db.SaveChangesAsync(cancellationToken);
+        context.Inspection.UpdatedAt = DateTimeOffset.UtcNow;
+        context.Inspection.LastModifiedByUserId = CurrentUserId;
+        try { await db.SaveChangesAsync(cancellationToken); }
+        catch (DbUpdateConcurrencyException) { return Conflict(new { error = "The inspection changed. Reload it before removing photos." }); }
         try
         {
             await photoStorage.DeleteAsync(photo.StorageKey, cancellationToken);
@@ -993,8 +1124,9 @@ public class SurveyorController(
     }
 
     private async Task<InspectionInfo?> GetInspectionInfo(
-        Guid equipmentId, CancellationToken cancellationToken) =>
-        await (
+        Guid equipmentId, CancellationToken cancellationToken)
+    {
+        var legacy = await (
             from inspection in db.SurveySessions.AsNoTracking()
             where inspection.AreaEquipmentId == equipmentId
             join review in db.QcReviews.AsNoTracking()
@@ -1002,11 +1134,42 @@ public class SurveyorController(
             from review in reviewGroup.DefaultIfEmpty()
             select new InspectionInfo(
                 inspection.Id,
-                inspection.Status,
+                review != null && review.Status == QcReviewStatus.Approved || inspection.Status == SurveyStatus.Approved
+                    ? EquipmentInspectionStatus.QcApproved
+                    : review != null && review.Status == QcReviewStatus.ChangesRequested || inspection.Status == SurveyStatus.Returned
+                        ? EquipmentInspectionStatus.ChangesRequested
+                        : inspection.Status == SurveyStatus.Submitted
+                            ? EquipmentInspectionStatus.PendingQcReview
+                            : EquipmentInspectionStatus.InProgress,
                 review == null ? null : review.Status,
                 review == null ? null : review.Comments,
-                review == null ? null : review.Severity))
-            .SingleOrDefaultAsync(cancellationToken);
+                review == null ? null : review.Severity,
+                inspection.UpdatedAt))
+            .OrderByDescending(x => x.UpdatedAt).ThenByDescending(x => x.InspectionId)
+            .FirstOrDefaultAsync(cancellationToken);
+        var activity = await (
+            from current in db.InspectionActivities.AsNoTracking()
+            join task in db.InspectionTasks.AsNoTracking() on current.InspectionTaskId equals task.Id
+            where task.AreaEquipmentId == equipmentId
+            orderby current.UpdatedAt descending, current.Id descending
+            select new InspectionInfo(
+                current.Id,
+                current.ReviewStatus == InspectionActivityReviewStatus.Accepted ? EquipmentInspectionStatus.QcApproved :
+                    current.ReviewStatus == InspectionActivityReviewStatus.ChangesRequested ? EquipmentInspectionStatus.ChangesRequested :
+                    current.ReviewStatus == InspectionActivityReviewStatus.Submitted || current.ReviewStatus == InspectionActivityReviewStatus.InReview
+                        ? EquipmentInspectionStatus.PendingQcReview :
+                    current.IsOnHold ? EquipmentInspectionStatus.Hold : EquipmentInspectionStatus.InProgress,
+                current.ReviewStatus == InspectionActivityReviewStatus.Accepted ? QcReviewStatus.Approved :
+                    current.ReviewStatus == InspectionActivityReviewStatus.ChangesRequested ? QcReviewStatus.ChangesRequested :
+                    current.ReviewStatus == InspectionActivityReviewStatus.InReview ? QcReviewStatus.InReview :
+                    current.ReviewStatus == InspectionActivityReviewStatus.Submitted ? QcReviewStatus.PendingReview : null,
+                db.ActivityReviewEvents.Where(e => e.InspectionActivityId == current.Id)
+                    .OrderByDescending(e => e.DecidedAt).Select(e => e.Comments).FirstOrDefault(),
+                null,
+                current.UpdatedAt))
+            .FirstOrDefaultAsync(cancellationToken);
+        return activity is not null && (legacy is null || activity.UpdatedAt >= legacy.UpdatedAt) ? activity : legacy;
+    }
 
     private IQueryable<ChecklistQuestion> CurrentChecklistQuestions() =>
         from question in db.ChecklistQuestions.AsNoTracking()
@@ -1054,7 +1217,8 @@ public class SurveyorController(
             inspection.InspectorName ?? string.Empty,
             inspection.SurveyorRemarks,
             GetInspectionStatus(inspection.Status, review?.Status),
-            !IsInspectionLocked(inspection, review),
+            !IsInspectionLocked(inspection, review) &&
+                (inspection.Status != SurveyStatus.Submitted || review?.Status == QcReviewStatus.ChangesRequested),
             inspection.CreatedAt,
             inspection.UpdatedAt,
             answers,
@@ -1092,7 +1256,7 @@ public class SurveyorController(
         var pin = context.Equipment;
         var status = inspection is null
             ? EquipmentInspectionStatus.NotStarted
-            : GetInspectionStatus(inspection.SurveyStatus, inspection.QcStatus);
+            : inspection.Status;
         return new SurveyorEquipmentDetailsResponse(
             pin.Id,
             pin.ProjectId,
@@ -1115,7 +1279,8 @@ public class SurveyorController(
             status,
             status != EquipmentInspectionStatus.QcApproved,
             inspection?.QcComments,
-            inspection?.QcSeverity);
+            inspection?.QcSeverity,
+            pin.MarkingNo);
     }
 
     private static EquipmentInspectionStatus GetInspectionStatus(SurveyStatus surveyStatus, QcReviewStatus? qcStatus) =>
@@ -1151,14 +1316,14 @@ public class SurveyorController(
 
     private async Task<ProjectAccess> CheckProjectAccess(Guid projectId, CancellationToken cancellationToken)
     {
-        var assignedSurveyorId = await db.Projects.AsNoTracking()
+        var assigned = await db.Projects.AsNoTracking()
             .Where(x => x.Id == projectId)
-            .Select(x => (Guid?)x.AssignedSurveyorId)
+            .Select(x => (bool?)(x.AssignedSurveyorId == CurrentUserId || x.AdditionalSurveyorId == CurrentUserId))
             .SingleOrDefaultAsync(cancellationToken);
 
-        if (assignedSurveyorId is null)
+        if (assigned is null)
             return ProjectAccess.NotFound;
-        return assignedSurveyorId == CurrentUserId ? ProjectAccess.Allowed : ProjectAccess.Forbidden;
+        return assigned.Value ? ProjectAccess.Allowed : ProjectAccess.Forbidden;
     }
 
     private ObjectResult ProjectAccessError(ProjectAccess access) => access == ProjectAccess.NotFound
@@ -1195,8 +1360,9 @@ public class SurveyorController(
 
     private static string? GetLayoutImagePath(Guid projectId, ProjectArea area)
     {
-        var layoutPhoto = area.Photos.FirstOrDefault(x => x.FilePath == area.LayoutImagePath)
-                          ?? area.Photos.OrderBy(x => x.UploadedAt).ThenBy(x => x.Id).FirstOrDefault();
+        var imagePhotos = area.Photos.Where(x => !StoredProjectPhoto.IsPdfFile(x.FilePath));
+        var layoutPhoto = imagePhotos.FirstOrDefault(x => x.FilePath == area.LayoutImagePath)
+                          ?? imagePhotos.OrderBy(x => x.UploadedAt).ThenBy(x => x.Id).FirstOrDefault();
         return layoutPhoto is null
             ? null
             : $"/api/projects/{projectId}/areas/{area.Id}/photos/{layoutPhoto.Id}";
@@ -1208,7 +1374,7 @@ public class SurveyorController(
         if (equipmentIds.Length == 0)
             return [];
 
-        return await (
+        var result = await (
             from inspection in db.SurveySessions.AsNoTracking()
             where inspection.AreaEquipmentId.HasValue && equipmentIds.Contains(inspection.AreaEquipmentId.Value)
             join review in db.QcReviews.AsNoTracking() on inspection.Id equals review.SurveySessionId into reviewGroup
@@ -1216,11 +1382,44 @@ public class SurveyorController(
             select new EquipmentReviewInfo(
                 inspection.AreaEquipmentId!.Value,
                 inspection.Id,
-                inspection.Status,
+                review != null && review.Status == QcReviewStatus.Approved || inspection.Status == SurveyStatus.Approved
+                    ? EquipmentInspectionStatus.QcApproved
+                    : review != null && review.Status == QcReviewStatus.ChangesRequested || inspection.Status == SurveyStatus.Returned
+                        ? EquipmentInspectionStatus.ChangesRequested
+                        : inspection.Status == SurveyStatus.Submitted
+                            ? EquipmentInspectionStatus.PendingQcReview
+                            : EquipmentInspectionStatus.InProgress,
                 review == null ? QcReviewStatus.PendingReview : review.Status,
                 review == null ? null : review.Comments,
-                review == null ? null : review.Severity))
-            .ToDictionaryAsync(x => x.EquipmentId, cancellationToken);
+                review == null ? null : review.Severity,
+                inspection.UpdatedAt))
+            .ToListAsync(cancellationToken);
+        var latestLegacy = result.GroupBy(x => x.EquipmentId)
+            .ToDictionary(group => group.Key, group => group.OrderByDescending(x => x.UpdatedAt).First());
+        var activities = await (
+            from activity in db.InspectionActivities.AsNoTracking()
+            join task in db.InspectionTasks.AsNoTracking() on activity.InspectionTaskId equals task.Id
+            where task.AreaEquipmentId.HasValue && equipmentIds.Contains(task.AreaEquipmentId.Value)
+            select new EquipmentReviewInfo(
+                task.AreaEquipmentId!.Value,
+                activity.Id,
+                activity.ReviewStatus == InspectionActivityReviewStatus.Accepted ? EquipmentInspectionStatus.QcApproved :
+                    activity.ReviewStatus == InspectionActivityReviewStatus.ChangesRequested ? EquipmentInspectionStatus.ChangesRequested :
+                    activity.ReviewStatus == InspectionActivityReviewStatus.Submitted || activity.ReviewStatus == InspectionActivityReviewStatus.InReview
+                        ? EquipmentInspectionStatus.PendingQcReview :
+                    activity.IsOnHold ? EquipmentInspectionStatus.Hold : EquipmentInspectionStatus.InProgress,
+                activity.ReviewStatus == InspectionActivityReviewStatus.Accepted ? QcReviewStatus.Approved :
+                    activity.ReviewStatus == InspectionActivityReviewStatus.ChangesRequested ? QcReviewStatus.ChangesRequested :
+                    activity.ReviewStatus == InspectionActivityReviewStatus.InReview ? QcReviewStatus.InReview :
+                    QcReviewStatus.PendingReview,
+                db.ActivityReviewEvents.Where(e => e.InspectionActivityId == activity.Id)
+                    .OrderByDescending(e => e.DecidedAt).Select(e => e.Comments).FirstOrDefault(),
+                null,
+                activity.UpdatedAt)).ToListAsync(cancellationToken);
+        foreach (var current in activities)
+            if (!latestLegacy.TryGetValue(current.EquipmentId, out var prior) || current.UpdatedAt >= prior.UpdatedAt)
+                latestLegacy[current.EquipmentId] = current;
+        return latestLegacy;
     }
 
     private static AreaEquipmentResponse ToEquipmentResponse(
@@ -1242,12 +1441,12 @@ public class SurveyorController(
         equipment.RfidTagUid,
         review is null
             ? EquipmentInspectionStatus.NotStarted.ToString()
-            : GetInspectionStatus(review.SurveyStatus, review.Status).ToString(),
+            : review.InspectionStatus.ToString(),
         equipment.CreatedByUserId,
         equipment.CreatedAt,
         equipment.UpdatedAt,
         review?.InspectionId,
-        review?.Status,
+        review?.ReviewStatus,
         review?.Comments,
         review?.Severity,
         equipment.IsPlacedOnLayout,
@@ -1263,12 +1462,30 @@ public class SurveyorController(
         equipment.NotifiedBody,
         equipment.SpecialConditionsOfUse,
         equipment.RfidIdentificationMethod,
-        equipment.RegistrationStatus);
+        equipment.RegistrationStatus,
+        equipment.LayoutImageKey,
+        equipment.MarkingNo);
+
+    private async Task<bool> LayoutImageBelongsToProject(string? key, Guid projectId, Guid areaId, CancellationToken ct)
+    {
+        if (key is null) return true;
+        if (string.IsNullOrWhiteSpace(key)) return false;
+        var parts = key.Split(':', 2);
+        if (parts.Length != 2 || !Guid.TryParse(parts[1], out var imageId)) return false;
+        return parts[0] switch
+        {
+            "area" => await db.ProjectAreaPhotos.AnyAsync(x => x.Id == imageId && x.ProjectAreaId == areaId &&
+                db.ProjectAreas.Any(a => a.Id == x.ProjectAreaId && a.ProjectId == projectId), ct),
+            "common" => await db.Files.AnyAsync(x => x.Id == imageId && x.ProjectId == projectId && x.Category == FileCategory.ProjectCommonLayout, ct),
+            _ => false
+        };
+    }
 
     private bool MatchesClientRegistration(AreaEquipment existing, UpsertAreaEquipmentRequest request,
         Guid projectId, Guid areaId, string tagNumber, string? normalizedUid) =>
         existing.ProjectId == projectId && existing.AreaId == areaId && existing.CreatedByUserId == CurrentUserId &&
         existing.TagNumber == tagNumber && existing.EquipmentCode == TrimOrNull(request.EquipmentId) &&
+        existing.LayoutImageKey == request.LayoutImageKey &&
         existing.Type == request.Type.Trim() && existing.CircuitId == TrimOrNull(request.CircuitId) &&
         existing.Location == TrimOrNull(request.Location) && existing.Manufacturer == TrimOrNull(request.Manufacturer) &&
         existing.ProtectionDetails == TrimOrNull(request.ProtectionDetails) && existing.CertificateNumber == TrimOrNull(request.CertificateNumber) &&
@@ -1311,19 +1528,21 @@ public class SurveyorController(
     private sealed record EquipmentReviewInfo(
         Guid EquipmentId,
         Guid InspectionId,
-        SurveyStatus SurveyStatus,
-        QcReviewStatus Status,
+        EquipmentInspectionStatus InspectionStatus,
+        QcReviewStatus ReviewStatus,
         string? Comments,
-        QcSeverity? Severity);
+        QcSeverity? Severity,
+        DateTimeOffset UpdatedAt);
 
     private sealed record EquipmentContext(AreaEquipment Equipment, ProjectArea Area, Project Project);
     private sealed record InspectionContext(SurveySession Inspection, AreaEquipment Equipment, Project Project);
     private sealed record InspectionInfo(
         Guid InspectionId,
-        SurveyStatus SurveyStatus,
+        EquipmentInspectionStatus Status,
         QcReviewStatus? QcStatus,
         string? QcComments,
-        QcSeverity? QcSeverity);
+        QcSeverity? QcSeverity,
+        DateTimeOffset UpdatedAt);
     private sealed record InspectionValidationResult(BadRequestObjectResult? Error, IReadOnlyList<Guid>? QuestionIds = null);
 
     private enum ProjectAccess { Allowed, NotFound, Forbidden }

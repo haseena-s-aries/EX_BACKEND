@@ -3254,3 +3254,625 @@ END;
 COMMIT;
 GO
 
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261106131959_ReportDocumentDetails'
+)
+BEGIN
+    ALTER TABLE [GeneratedReportArtifacts] ADD [DocumentNumber] nvarchar(200) NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261106131959_ReportDocumentDetails'
+)
+BEGIN
+    ALTER TABLE [GeneratedReportArtifacts] ADD [DocumentRevision] nvarchar(100) NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261106131959_ReportDocumentDetails'
+)
+BEGIN
+    ALTER TABLE [GeneratedReportArtifacts] ADD [UidNumber] nvarchar(100) NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261106131959_ReportDocumentDetails'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261106131959_ReportDocumentDetails', N'10.0.13');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261109043002_ProjectSurveyorHandover'
+)
+BEGIN
+    ALTER TABLE [Projects] ADD [AdditionalSurveyorId] uniqueidentifier NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261109043002_ProjectSurveyorHandover'
+)
+BEGIN
+    ALTER TABLE [InspectionActivities] ADD [LastModifiedByUserId] uniqueidentifier NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261109043002_ProjectSurveyorHandover'
+)
+BEGIN
+    ALTER TABLE [SurveySessions] ADD [LastModifiedByUserId] uniqueidentifier NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261109043002_ProjectSurveyorHandover'
+)
+BEGIN
+    CREATE INDEX [IX_Projects_AdditionalSurveyorId] ON [Projects] ([AdditionalSurveyorId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261109043002_ProjectSurveyorHandover'
+)
+BEGIN
+    ALTER TABLE [Projects] ADD CONSTRAINT [FK_Projects_Users_AdditionalSurveyorId] FOREIGN KEY ([AdditionalSurveyorId]) REFERENCES [Users] ([Id]) ON DELETE NO ACTION;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261109043002_ProjectSurveyorHandover'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261109043002_ProjectSurveyorHandover', N'10.0.13');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261109060233_ProjectWorkSchedule'
+)
+BEGIN
+    ALTER TABLE [Projects] ADD [TargetDate] date NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261109060233_ProjectWorkSchedule'
+)
+BEGIN
+    CREATE TABLE [ProjectScheduleEntries] (
+        [Id] uniqueidentifier NOT NULL,
+        [ProjectId] uniqueidentifier NOT NULL,
+        [ActorId] uniqueidentifier NULL,
+        [Kind] nvarchar(24) NOT NULL,
+        [EventKey] nvarchar(100) NOT NULL,
+        [TargetDate] date NULL,
+        [PreviousTargetDate] date NULL,
+        [WorkStartDate] date NULL,
+        [ExpectedWorkEndDate] date NULL,
+        [DelayReason] nvarchar(2000) NULL,
+        [DelayDays] int NOT NULL,
+        [OccurredAt] datetimeoffset NOT NULL,
+        CONSTRAINT [PK_ProjectScheduleEntries] PRIMARY KEY ([Id]),
+        CONSTRAINT [FK_ProjectScheduleEntries_Projects_ProjectId] FOREIGN KEY ([ProjectId]) REFERENCES [Projects] ([Id]) ON DELETE CASCADE
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261109060233_ProjectWorkSchedule'
+)
+BEGIN
+    CREATE TABLE [ProjectDelayEmails] (
+        [Id] uniqueidentifier NOT NULL,
+        [ScheduleEntryId] uniqueidentifier NOT NULL,
+        [RecipientId] uniqueidentifier NOT NULL,
+        [Status] nvarchar(24) NOT NULL,
+        [AttemptedAt] datetimeoffset NULL,
+        [AcceptedAt] datetimeoffset NULL,
+        CONSTRAINT [PK_ProjectDelayEmails] PRIMARY KEY ([Id]),
+        CONSTRAINT [FK_ProjectDelayEmails_ProjectScheduleEntries_ScheduleEntryId] FOREIGN KEY ([ScheduleEntryId]) REFERENCES [ProjectScheduleEntries] ([Id]) ON DELETE CASCADE
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261109060233_ProjectWorkSchedule'
+)
+BEGIN
+    CREATE UNIQUE INDEX [IX_ProjectDelayEmails_ScheduleEntryId_RecipientId] ON [ProjectDelayEmails] ([ScheduleEntryId], [RecipientId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261109060233_ProjectWorkSchedule'
+)
+BEGIN
+    CREATE INDEX [IX_ProjectDelayEmails_Status] ON [ProjectDelayEmails] ([Status]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261109060233_ProjectWorkSchedule'
+)
+BEGIN
+    CREATE UNIQUE INDEX [IX_ProjectScheduleEntries_ProjectId_EventKey] ON [ProjectScheduleEntries] ([ProjectId], [EventKey]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261109060233_ProjectWorkSchedule'
+)
+BEGIN
+    CREATE INDEX [IX_ProjectScheduleEntries_ProjectId_Kind_OccurredAt] ON [ProjectScheduleEntries] ([ProjectId], [Kind], [OccurredAt]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261109060233_ProjectWorkSchedule'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261109060233_ProjectWorkSchedule', N'10.0.13');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110105419_ProjectAdditionalQc'
+)
+BEGIN
+    ALTER TABLE [Projects] ADD [AdditionalQcId] uniqueidentifier NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110105419_ProjectAdditionalQc'
+)
+BEGIN
+    CREATE INDEX [IX_Projects_AdditionalQcId] ON [Projects] ([AdditionalQcId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110105419_ProjectAdditionalQc'
+)
+BEGIN
+    ALTER TABLE [Projects] ADD CONSTRAINT [FK_Projects_Users_AdditionalQcId] FOREIGN KEY ([AdditionalQcId]) REFERENCES [Users] ([Id]) ON DELETE NO ACTION;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110105419_ProjectAdditionalQc'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261110105419_ProjectAdditionalQc', N'10.0.13');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110113353_InspectionActivityHold'
+)
+BEGIN
+    ALTER TABLE [InspectionActivities] ADD [IsOnHold] bit NOT NULL DEFAULT CAST(0 AS bit);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261110113353_InspectionActivityHold'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261110113353_InspectionActivityHold', N'10.0.13');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261111054419_ProjectReportStatusWorkflow'
+)
+BEGIN
+    CREATE TABLE [ProjectReportWorkflows] (
+        [ProjectId] uniqueidentifier NOT NULL,
+        [Status] nvarchar(20) NOT NULL DEFAULT N'Ongoing',
+        [Revision] int NOT NULL,
+        [Version] bigint NOT NULL,
+        [HoldReason] nvarchar(2000) NULL,
+        [UpdatedAt] datetimeoffset NOT NULL,
+        [UpdatedByUserId] uniqueidentifier NOT NULL,
+        [SubmittedAt] datetimeoffset NULL,
+        [SubmittedByUserId] uniqueidentifier NULL,
+        [SubmittedArtifactId] uniqueidentifier NULL,
+        CONSTRAINT [PK_ProjectReportWorkflows] PRIMARY KEY ([ProjectId]),
+        CONSTRAINT [FK_ProjectReportWorkflows_GeneratedReportArtifacts_SubmittedArtifactId] FOREIGN KEY ([SubmittedArtifactId]) REFERENCES [GeneratedReportArtifacts] ([Id]),
+        CONSTRAINT [FK_ProjectReportWorkflows_Projects_ProjectId] FOREIGN KEY ([ProjectId]) REFERENCES [Projects] ([Id]) ON DELETE CASCADE
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261111054419_ProjectReportStatusWorkflow'
+)
+BEGIN
+    CREATE TABLE [ReportWorkflowEvents] (
+        [Id] uniqueidentifier NOT NULL,
+        [ProjectId] uniqueidentifier NOT NULL,
+        [FromStatus] nvarchar(20) NOT NULL,
+        [ToStatus] nvarchar(20) NOT NULL,
+        [Revision] int NOT NULL,
+        [Version] bigint NOT NULL,
+        [Reason] nvarchar(2000) NULL,
+        [ActorUserId] uniqueidentifier NOT NULL,
+        [OccurredAt] datetimeoffset NOT NULL,
+        [ArtifactId] uniqueidentifier NULL,
+        CONSTRAINT [PK_ReportWorkflowEvents] PRIMARY KEY ([Id]),
+        CONSTRAINT [FK_ReportWorkflowEvents_GeneratedReportArtifacts_ArtifactId] FOREIGN KEY ([ArtifactId]) REFERENCES [GeneratedReportArtifacts] ([Id]),
+        CONSTRAINT [FK_ReportWorkflowEvents_Projects_ProjectId] FOREIGN KEY ([ProjectId]) REFERENCES [Projects] ([Id]) ON DELETE CASCADE
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261111054419_ProjectReportStatusWorkflow'
+)
+BEGIN
+    CREATE INDEX [IX_ProjectReportWorkflows_SubmittedArtifactId] ON [ProjectReportWorkflows] ([SubmittedArtifactId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261111054419_ProjectReportStatusWorkflow'
+)
+BEGIN
+    CREATE INDEX [IX_ReportWorkflowEvents_ArtifactId] ON [ReportWorkflowEvents] ([ArtifactId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261111054419_ProjectReportStatusWorkflow'
+)
+BEGIN
+    CREATE UNIQUE INDEX [IX_ReportWorkflowEvents_ProjectId_Version] ON [ReportWorkflowEvents] ([ProjectId], [Version]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261111054419_ProjectReportStatusWorkflow'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261111054419_ProjectReportStatusWorkflow', N'10.0.13');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261112045739_ProjectMultipleClients'
+)
+BEGIN
+    CREATE TABLE [ProjectClientAssignments] (
+        [ProjectId] uniqueidentifier NOT NULL,
+        [ClientUserId] uniqueidentifier NOT NULL,
+        [IsActive] bit NOT NULL,
+        [AssignedAt] datetimeoffset NOT NULL,
+        [UpdatedAt] datetimeoffset NOT NULL,
+        CONSTRAINT [PK_ProjectClientAssignments] PRIMARY KEY ([ProjectId], [ClientUserId]),
+        CONSTRAINT [FK_ProjectClientAssignments_Projects_ProjectId] FOREIGN KEY ([ProjectId]) REFERENCES [Projects] ([Id]) ON DELETE CASCADE,
+        CONSTRAINT [FK_ProjectClientAssignments_Users_ClientUserId] FOREIGN KEY ([ClientUserId]) REFERENCES [Users] ([Id]) ON DELETE NO ACTION
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261112045739_ProjectMultipleClients'
+)
+BEGIN
+    CREATE INDEX [IX_ProjectClientAssignments_ClientUserId] ON [ProjectClientAssignments] ([ClientUserId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261112045739_ProjectMultipleClients'
+)
+BEGIN
+    INSERT INTO [ProjectClientAssignments] ([ProjectId], [ClientUserId], [IsActive], [AssignedAt], [UpdatedAt])
+                    SELECT p.[Id], p.[AssignedClientId], CAST(1 AS bit), p.[CreatedAt], p.[UpdatedAt]
+                    FROM [Projects] p
+                    WHERE p.[AssignedClientId] IS NOT NULL
+                      AND NOT EXISTS (SELECT 1 FROM [ProjectClientAssignments] a WHERE a.[ProjectId] = p.[Id] AND a.[ClientUserId] = p.[AssignedClientId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261112045739_ProjectMultipleClients'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261112045739_ProjectMultipleClients', N'10.0.13');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261113044054_AccountProfileAndRecovery'
+)
+BEGIN
+    ALTER TABLE [Users] ADD [AuthVersion] int NOT NULL DEFAULT 0;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261113044054_AccountProfileAndRecovery'
+)
+BEGIN
+    ALTER TABLE [Users] ADD [Designation] nvarchar(150) NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261113044054_AccountProfileAndRecovery'
+)
+BEGIN
+    ALTER TABLE [Users] ADD [PhoneNumber] nvarchar(40) NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261113044054_AccountProfileAndRecovery'
+)
+BEGIN
+    ALTER TABLE [Users] ADD [ProfilePhotoPath] nvarchar(500) NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261113044054_AccountProfileAndRecovery'
+)
+BEGIN
+    CREATE TABLE [AccountActionTokens] (
+        [Id] uniqueidentifier NOT NULL,
+        [UserId] uniqueidentifier NOT NULL,
+        [Purpose] nvarchar(30) NOT NULL,
+        [TokenHash] nchar(64) NOT NULL,
+        [NewEmail] nvarchar(320) NULL,
+        [AuthVersion] int NOT NULL,
+        [CreatedAt] datetimeoffset NOT NULL,
+        [ExpiresAt] datetimeoffset NOT NULL,
+        [ConsumedAt] datetimeoffset NULL,
+        CONSTRAINT [PK_AccountActionTokens] PRIMARY KEY ([Id]),
+        CONSTRAINT [FK_AccountActionTokens_Users_UserId] FOREIGN KEY ([UserId]) REFERENCES [Users] ([Id]) ON DELETE CASCADE
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261113044054_AccountProfileAndRecovery'
+)
+BEGIN
+    CREATE UNIQUE INDEX [IX_AccountActionTokens_TokenHash] ON [AccountActionTokens] ([TokenHash]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261113044054_AccountProfileAndRecovery'
+)
+BEGIN
+    CREATE INDEX [IX_AccountActionTokens_UserId_Purpose_CreatedAt] ON [AccountActionTokens] ([UserId], [Purpose], [CreatedAt]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261113044054_AccountProfileAndRecovery'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261113044054_AccountProfileAndRecovery', N'10.0.13');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261113072459_UserRegistrationAndRoleRequests'
+)
+BEGIN
+    ALTER TABLE [Users] ADD [ApprovalRejectionReason] nvarchar(2000) NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261113072459_UserRegistrationAndRoleRequests'
+)
+BEGIN
+    ALTER TABLE [Users] ADD [RegisteredAt] datetimeoffset NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261113072459_UserRegistrationAndRoleRequests'
+)
+BEGIN
+    CREATE TABLE [RoleChangeRequests] (
+        [Id] uniqueidentifier NOT NULL,
+        [UserId] uniqueidentifier NOT NULL,
+        [CurrentRole] int NOT NULL,
+        [RequestedRole] int NOT NULL,
+        [Reason] nvarchar(2000) NOT NULL,
+        [Status] int NOT NULL,
+        [RequestedAt] datetimeoffset NOT NULL,
+        [ReviewedBy] uniqueidentifier NULL,
+        [ReviewedAt] datetimeoffset NULL,
+        [RejectionReason] nvarchar(2000) NULL,
+        CONSTRAINT [PK_RoleChangeRequests] PRIMARY KEY ([Id]),
+        CONSTRAINT [FK_RoleChangeRequests_Users_ReviewedBy] FOREIGN KEY ([ReviewedBy]) REFERENCES [Users] ([Id]) ON DELETE NO ACTION,
+        CONSTRAINT [FK_RoleChangeRequests_Users_UserId] FOREIGN KEY ([UserId]) REFERENCES [Users] ([Id]) ON DELETE NO ACTION
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261113072459_UserRegistrationAndRoleRequests'
+)
+BEGIN
+    CREATE TABLE [UserAccessNotifications] (
+        [Id] uniqueidentifier NOT NULL,
+        [RecipientId] uniqueidentifier NOT NULL,
+        [EventKey] nvarchar(150) NOT NULL,
+        [Kind] nvarchar(30) NOT NULL,
+        [Title] nvarchar(200) NOT NULL,
+        [Message] nvarchar(2500) NOT NULL,
+        [TargetUserId] uniqueidentifier NULL,
+        [RoleRequestId] uniqueidentifier NULL,
+        [CreatedAt] datetimeoffset NOT NULL,
+        [ReadAt] datetimeoffset NULL,
+        [DismissedAt] datetimeoffset NULL,
+        CONSTRAINT [PK_UserAccessNotifications] PRIMARY KEY ([Id]),
+        CONSTRAINT [FK_UserAccessNotifications_Users_RecipientId] FOREIGN KEY ([RecipientId]) REFERENCES [Users] ([Id]) ON DELETE CASCADE
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261113072459_UserRegistrationAndRoleRequests'
+)
+BEGIN
+    CREATE INDEX [IX_RoleChangeRequests_ReviewedBy] ON [RoleChangeRequests] ([ReviewedBy]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261113072459_UserRegistrationAndRoleRequests'
+)
+BEGIN
+    EXEC(N'CREATE UNIQUE INDEX [IX_RoleChangeRequests_UserId] ON [RoleChangeRequests] ([UserId]) WHERE [Status] = 0');
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261113072459_UserRegistrationAndRoleRequests'
+)
+BEGIN
+    CREATE UNIQUE INDEX [IX_UserAccessNotifications_RecipientId_EventKey] ON [UserAccessNotifications] ([RecipientId], [EventKey]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261113072459_UserRegistrationAndRoleRequests'
+)
+BEGIN
+    INSERT INTO [UserAccessNotifications] ([Id],[RecipientId],[EventKey],[Kind],[Title],[Message],[TargetUserId],[CreatedAt])
+    SELECT NEWID(), approver.[Id], N'registration:' + LOWER(CONVERT(nvarchar(36), pending.[Id])), N'Registration', N'New User Registration', N'New user registration is awaiting approval.', pending.[Id], SYSUTCDATETIME()
+    FROM [Users] pending CROSS JOIN [Users] approver
+    WHERE pending.[IsActive] = 1 AND pending.[ApprovalStatus] = 0
+    AND approver.[IsActive] = 1 AND approver.[ApprovalStatus] = 1
+    AND (approver.[Role] = 0 OR (approver.[Role] = 1 AND pending.[Role] NOT IN (0,1)));
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261113072459_UserRegistrationAndRoleRequests'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261113072459_UserRegistrationAndRoleRequests', N'10.0.13');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261116053821_BrowserFieldworkReceipts'
+)
+BEGIN
+    CREATE TABLE [FieldworkReceipt] (
+        [UserId] uniqueidentifier NOT NULL,
+        [OperationId] uniqueidentifier NOT NULL,
+        [ProjectId] uniqueidentifier NOT NULL,
+        [RequestHash] nvarchar(64) NOT NULL,
+        [ResponseJson] nvarchar(max) NOT NULL,
+        [StatusCode] int NOT NULL,
+        [CommittedAt] datetimeoffset NOT NULL,
+        CONSTRAINT [PK_FieldworkReceipt] PRIMARY KEY ([UserId], [OperationId])
+    );
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261116053821_BrowserFieldworkReceipts'
+)
+BEGIN
+    CREATE INDEX [IX_FieldworkReceipt_ProjectId] ON [FieldworkReceipt] ([ProjectId]);
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261116053821_BrowserFieldworkReceipts'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261116053821_BrowserFieldworkReceipts', N'10.0.13');
+END;
+
+COMMIT;
+GO
+
+BEGIN TRANSACTION;
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261116124045_EquipmentLayoutImageAssociation'
+)
+BEGIN
+    ALTER TABLE [AreaEquipment] ADD [LayoutImageKey] nvarchar(80) NULL;
+END;
+
+IF NOT EXISTS (
+    SELECT * FROM [__EFMigrationsHistory]
+    WHERE [MigrationId] = N'20261116124045_EquipmentLayoutImageAssociation'
+)
+BEGIN
+    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+    VALUES (N'20261116124045_EquipmentLayoutImageAssociation', N'10.0.13');
+END;
+
+COMMIT;
+GO
+

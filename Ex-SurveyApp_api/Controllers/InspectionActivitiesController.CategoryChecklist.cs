@@ -1,4 +1,4 @@
-using System.Data;
+﻿using System.Data;
 using Ex_SurveyApp_api.Models;
 using Ex_SurveyApp_api.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -29,7 +29,9 @@ public sealed partial class InspectionActivitiesController
 
     private static string MappingKey(Guid projectId, Guid equipmentId) => $"CategoryMapping/{projectId:D}/{equipmentId:D}";
 
-    private async Task<Dictionary<string, string>> ReadMappings(Guid projectId, Guid? equipmentId, CancellationToken ct)
+    private sealed record EquipmentCheckpointOverride(string Text, string Category);
+
+    private async Task<Dictionary<string, EquipmentCheckpointOverride>> ReadOverrides(Guid projectId, Guid? equipmentId, CancellationToken ct)
     {
         if (!equipmentId.HasValue) return new();
         var key = MappingKey(projectId, equipmentId.Value);
@@ -37,11 +39,12 @@ public sealed partial class InspectionActivitiesController
             .OrderByDescending(x => x.VersionNumber).Select(x => (Guid?)x.Id).FirstOrDefaultAsync(ct);
         if (!id.HasValue) return new();
         return await db.CheckpointDefinitionSnapshots.Where(x => x.ChecklistVersionSnapshotId == id)
-            .ToDictionaryAsync(x => x.QuestionCode, x => x.ApplicabilityCode!, ct);
+            .ToDictionaryAsync(x => x.QuestionCode, x => new EquipmentCheckpointOverride(x.QuestionText, x.ApplicabilityCode!), ct);
     }
 
-    private static SampleChecklistPoint ApplyMapping(SampleChecklistPoint point, IReadOnlyDictionary<string, string> mappings) =>
-        mappings.TryGetValue(PointCode(point), out var category) ? point with {ProtectionApplicability = category} : point;
+    private static SampleChecklistPoint ApplyOverride(SampleChecklistPoint point, IReadOnlyDictionary<string, EquipmentCheckpointOverride> overrides) =>
+        overrides.TryGetValue(PointCode(point), out var value)
+            ? point with {Text = value.Text, ProtectionApplicability = value.Category} : point;
 
     private async Task<SampleChecklistPoint[]> GetInspectionPoints(Guid? snapshotId, Guid projectId, Guid equipmentId,
         SampleChecklistSource source, CancellationToken ct)
@@ -52,8 +55,8 @@ public sealed partial class InspectionActivitiesController
             if (selected.Length > 0) return selected;
         }
         var catalog = await ReadCatalog(ct);
-        var mappings = await ReadMappings(projectId, equipmentId, ct);
-        return CatalogPoints(source, catalog).Select(point => ApplyMapping(point, mappings)).ToArray();
+        var overrides = await ReadOverrides(projectId, equipmentId, ct);
+        return CatalogPoints(source, catalog).Select(point => ApplyOverride(point, overrides)).ToArray();
     }
 
     private async Task<SampleChecklistPoint[]> ResolveSelectedPoints(Guid snapshotId, Guid projectId, Guid equipmentId,
@@ -62,12 +65,12 @@ public sealed partial class InspectionActivitiesController
         var codes = (await db.CheckpointDefinitionSnapshots.Where(p => p.ChecklistVersionSnapshotId == snapshotId)
             .Select(p => p.QuestionCode).ToListAsync(ct)).ToHashSet(StringComparer.Ordinal);
         var catalog = await ReadCatalog(ct);
-        var mappings = await ReadMappings(projectId, equipmentId, ct);
-        return CatalogPoints(source, catalog).Where(p => codes.Contains(PointCode(p))).Select(p => ApplyMapping(p, mappings)).ToArray();
+        var overrides = await ReadOverrides(projectId, equipmentId, ct);
+        return CatalogPoints(source, catalog).Where(p => codes.Contains(PointCode(p))).Select(p => ApplyOverride(p, overrides)).ToArray();
     }
 
     [HttpGet("category-checklist/projects/{projectId:guid}/selection")]
-    [Authorize(Roles = "Admin,Surveyor")]
+    [Authorize(Roles = "Admin,Surveyor,Qc")]
     public async Task<IActionResult> GetCategorySelection(Guid projectId, [FromServices] InspectionActivityAuthorizer authorizer, CancellationToken ct, Guid? equipmentId = null)
     {
         if (!await CanAccessCategoryProject(authorizer, projectId, ct)) return NotFound();
@@ -79,10 +82,19 @@ public sealed partial class InspectionActivitiesController
         var selectedCodes = fallback is null ? (equipmentId.HasValue ? [] : source.Items.Select(PointCode).ToArray()) :
             await db.CheckpointDefinitionSnapshots.Where(p => p.ChecklistVersionSnapshotId == fallback.Id)
                 .OrderBy(p => p.SortOrder).Select(p => p.QuestionCode).ToArrayAsync(ct);
-        var mappings = await ReadMappings(projectId, equipmentId, ct);
+        var overrides = await ReadOverrides(projectId, equipmentId, ct);
         var catalog = await ReadCatalog(ct);
         var customCodes = catalog.Checkpoints.Select(PointCode).ToHashSet();
-        return Ok(new {points = CatalogPoints(source, catalog).Select(p => PointView(ApplyMapping(p, mappings), customCodes.Contains(PointCode(p)), p.ProtectionApplicability)), selectedCodes, version = snapshot?.VersionNumber ?? 0});
+        return Ok(new {points = CatalogPoints(source, catalog).Select(p => PointView(ApplyOverride(p, overrides), customCodes.Contains(PointCode(p)), p.ProtectionApplicability)), selectedCodes, version = snapshot?.VersionNumber ?? 0});
+    }
+
+    [HttpGet("category-checklist/projects/{projectId:guid}/fieldwork-template")]
+    [Authorize(Roles = "Surveyor")]
+    public async Task<IActionResult> FieldworkTemplate(Guid projectId, [FromServices] InspectionActivityAuthorizer authorizer, CancellationToken ct)
+    {
+        if (!await CanAccessCategoryProject(authorizer, projectId, ct)) return NotFound();
+        var snapshot = await SavedSelections(projectId).Select(s => (Guid?)s.Id).FirstOrDefaultAsync(ct);
+        return Ok((await GetInspectionPoints(snapshot, projectId, Guid.Empty, SampleChecklistImporter.ReadSource(), ct)).Select(p => PointView(p)));
     }
 
     [HttpPut("category-checklist/projects/{projectId:guid}/selection")]
@@ -95,7 +107,8 @@ public sealed partial class InspectionActivitiesController
         if (!equipmentId.HasValue && !User.IsInRole(nameof(UserRole.Admin))) return Forbid();
         var source = SampleChecklistImporter.ReadSource();
         var changes = request.CategoryChanges;
-        if (changes is {Count: > 0} && !equipmentId.HasValue) return Forbid();
+        var descriptions = request.DescriptionChanges;
+        if ((changes is {Count: > 0} || descriptions is {Count: > 0}) && !equipmentId.HasValue) return Forbid();
         var catalog = await ReadCatalog(ct);
         var catalogPoints = CatalogPoints(source, catalog);
         var categoryIds = catalog.Categories.ToDictionary(c => c.Id, c => c.Id, StringComparer.Ordinal);
@@ -104,27 +117,36 @@ public sealed partial class InspectionActivitiesController
         var knownCodes = catalogPoints.Select(PointCode).ToHashSet(StringComparer.Ordinal);
         if (changes is not null && changes.Any(pair => !knownCodes.Contains(pair.Key) || pair.Value is null || !categoryIds.ContainsKey(pair.Value)))
             return BadRequest(new {error = "Choose a valid category for each checkpoint."});
+        if (descriptions is not null && descriptions.Any(pair => !knownCodes.Contains(pair.Key) || string.IsNullOrWhiteSpace(pair.Value) || pair.Value.Trim().Length > 4000))
+            return BadRequest(new {error = "Enter a valid checkpoint description of up to 4,000 characters."});
         var selected = request.Codes?.ToHashSet(StringComparer.Ordinal);
-        if (selected is null || (selected.Count == 0 && changes is not {Count: > 0}) || selected.Count != request.Codes!.Length ||
+        if (selected is null || (selected.Count == 0 && changes is not {Count: > 0} && descriptions is not {Count: > 0}) || selected.Count != request.Codes!.Length ||
             selected.Except(knownCodes).Any())
             return BadRequest(new {error = "Select at least one valid, unique PDF checkpoint."});
-        await using var transaction = db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct) : null;
+        await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction == null ? await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct) : null;
         var latest = await SavedSelections(projectId, equipmentId).FirstOrDefaultAsync(ct);
         if (request.Version != (latest?.VersionNumber ?? 0))
             return Conflict(new {error = "The saved checklist changed. Reload the checkpoint selection and try again."});
-        var mappings = await ReadMappings(projectId, equipmentId, ct);
-        if (changes is {Count: > 0} && equipmentId.HasValue)
+        var overrides = await ReadOverrides(projectId, equipmentId, ct);
+        if ((changes is {Count: > 0} || descriptions is {Count: > 0}) && equipmentId.HasValue)
         {
-            foreach (var (code, category) in changes) mappings[code] = categoryIds[category];
+            var pointsByCode = catalogPoints.ToDictionary(PointCode);
+            foreach (var code in (changes?.Keys.AsEnumerable() ?? Enumerable.Empty<string>())
+                         .Concat(descriptions?.Keys.AsEnumerable() ?? Enumerable.Empty<string>()).Distinct())
+            {
+                var current = overrides.GetValueOrDefault(code) ?? new EquipmentCheckpointOverride(pointsByCode[code].Text, pointsByCode[code].ProtectionApplicability);
+                overrides[code] = new EquipmentCheckpointOverride(descriptions?.GetValueOrDefault(code)?.Trim() ?? current.Text,
+                    changes is not null && changes.TryGetValue(code, out var category) ? categoryIds[category] : current.Category);
+            }
             var mappingSnapshot = new ChecklistVersionSnapshot {
                 VersionNumber = request.Version + 1, ProtectionTypeSnapshot = MappingKey(projectId, equipmentId.Value),
                 PublishedByUserId = ActorId, PublishedAt = DateTimeOffset.UtcNow,
-                SnapshotHash = HashContent(System.Text.Json.JsonSerializer.Serialize(mappings))
+                SnapshotHash = HashContent(System.Text.Json.JsonSerializer.Serialize(overrides))
             };
             db.ChecklistVersionSnapshots.Add(mappingSnapshot);
-            AddCategoryDefinitions(mappingSnapshot.Id, catalogPoints.Where(p => mappings.ContainsKey(PointCode(p))).Select(p => ApplyMapping(p, mappings)));
+            AddCategoryDefinitions(mappingSnapshot.Id, catalogPoints.Where(p => overrides.ContainsKey(PointCode(p))).Select(p => ApplyOverride(p, overrides)));
         }
-        var selectedPoints = catalogPoints.Where(p => selected.Contains(PointCode(p))).Select(p => ApplyMapping(p, mappings)).ToArray();
+        var selectedPoints = catalogPoints.Where(p => selected.Contains(PointCode(p))).Select(p => ApplyOverride(p, overrides)).ToArray();
         var snapshot = new ChecklistVersionSnapshot {
             VersionNumber = request.Version + 1, ProtectionTypeSnapshot = SelectionKey(projectId, equipmentId), PublishedByUserId = ActorId,
             PublishedAt = DateTimeOffset.UtcNow, SnapshotHash = HashContent(source.SourceSha256 + "/" + string.Join(",", selectedPoints.Select(p => $"{PointCode(p)}:{p.ProtectionApplicability}"))),
@@ -174,7 +196,7 @@ public sealed partial class InspectionActivitiesController
         {
             snapshot = await (from activity in db.InspectionActivities.AsNoTracking()
                                   join task in db.InspectionTasks.AsNoTracking() on activity.InspectionTaskId equals task.Id
-                                  where activity.Id == activityId && activity.Grade == null && activity.InspectorUserId == ActorId &&
+                                  where activity.Id == activityId && activity.Grade == null &&
                                         task.AreaEquipmentId == equipmentId
                                   select (Guid?)activity.ChecklistVersionId).SingleOrDefaultAsync(ct);
             if (!snapshot.HasValue) return NotFound();
@@ -204,16 +226,17 @@ public sealed partial class InspectionActivitiesController
         var actor = await db.Users.AsNoTracking().SingleOrDefaultAsync(u => u.Id == ActorId && u.IsActive && u.ApprovalStatus == ApprovalStatus.Approved, ct);
         if (actor is null) return Forbid();
         var start = new DateTimeOffset(request.InspectionDate.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
-        await using var transaction = db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct) : null;
+        await using var transaction = db.Database.IsRelational() && db.Database.CurrentTransaction == null ? await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, ct) : null;
         if (!await CategoryEquipment(projectId, equipmentId).AnyAsync(ct)) return NotFound();
         var existing = await (from activity in db.InspectionActivities.AsNoTracking()
                               join task in db.InspectionTasks.AsNoTracking() on activity.InspectionTaskId equals task.Id
                               join plan in db.InspectionPlans.AsNoTracking() on task.InspectionPlanId equals plan.Id
-                              where activity.Grade == null && activity.InspectorUserId == actor.Id && activity.StartedAt == start &&
+                              where activity.Grade == null && activity.StartedAt == start &&
                                     task.AreaEquipmentId == equipmentId && plan.ProjectId == projectId && plan.SourceReference == CategoryPlan
-                              select activity).FirstOrDefaultAsync(ct);
+                              select activity).OrderByDescending(x => x.ReviewStatus == InspectionActivityReviewStatus.Draft || x.ReviewStatus == InspectionActivityReviewStatus.ChangesRequested).ThenByDescending(x => x.UpdatedAt).FirstOrDefaultAsync(ct);
         if (existing is not null)
         {
+            if (existing.InspectorUserId != actor.Id) return Ok(new {id = existing.Id});
             var hasResponses = await (from response in db.CheckpointResponseRevisions
                                       join revision in db.InspectionActivityRevisions on response.ActivityRevisionId equals revision.Id
                                       where revision.InspectionActivityId == existing.Id
@@ -227,22 +250,17 @@ public sealed partial class InspectionActivitiesController
         var selection = await SavedSelections(projectId, equipmentId).FirstOrDefaultAsync(ct)
             ?? await SavedSelections(projectId).FirstOrDefaultAsync(ct);
         var inspectionPoints = await GetInspectionPoints(selection?.Id, projectId, equipmentId, source, ct);
-        var sourceTemplateIds = Enum.GetValues<InspectionType>()
-            .Select(grade => SampleChecklistImporter.StableId($"{source.SourceRevision}/{grade}")).ToArray();
-        var approvals = await db.ChecklistTemplates.AsNoTracking()
-            .Where(t => sourceTemplateIds.Contains(t.Id) && t.LifecycleStatus == ChecklistLifecycleStatus.Published &&
-                        t.IsActive && t.ApprovedByUserId.HasValue && t.ApprovedAt.HasValue)
-            .OrderByDescending(t => t.ApprovedAt).ToListAsync(ct);
-        if (approvals.Count != sourceTemplateIds.Length)
-            return existing is null ? Conflict(new {error = "Publish the technically approved Sample Checklist source versions in Checklist Administration before starting a category inspection."}) : Ok(new {id = existing.Id});
+        if (inspectionPoints.Length == 0)
+            return Conflict(new {error = "The default equipment checklist is not configured. Contact an administrator before starting this inspection."});
+        var controlledSource = SampleChecklistImporter.ControlledSourceReference(source);
 
         var effectiveHash = HashContent(System.Text.Json.JsonSerializer.Serialize(inspectionPoints, CatalogJson));
         var snapshotId = SampleChecklistImporter.StableId($"category/{selection?.Id}/{source.SourceRevision}/{effectiveHash}");
         if (!await db.ChecklistVersionSnapshots.AnyAsync(s => s.Id == snapshotId, ct))
         {
             db.ChecklistVersionSnapshots.Add(new ChecklistVersionSnapshot {
-                Id = snapshotId, VersionNumber = selection?.VersionNumber ?? 1, SnapshotHash = effectiveHash, StandardReference = "User-supplied checklist sample", PublishedByUserId = approvals[0].ApprovedByUserId!.Value,
-                PublishedAt = approvals[0].ApprovedAt!.Value, ControlledSourceReference = $"Sample checklist.pdf; {source.SourceRevision}; SHA256:{source.SourceSha256}"
+                Id = snapshotId, VersionNumber = selection?.VersionNumber ?? 1, SnapshotHash = effectiveHash, StandardReference = "Default Sample Checklist", PublishedByUserId = actor.Id,
+                PublishedAt = DateTimeOffset.UtcNow, ControlledSourceReference = controlledSource
             });
             AddCategoryDefinitions(snapshotId, inspectionPoints);
         }
@@ -285,8 +303,10 @@ public sealed partial class InspectionActivitiesController
     {
         try
         {
-            await authorizer.RequireActorAsync(ActorId, ct, UserRole.Admin, UserRole.Surveyor);
+            await authorizer.RequireActorAsync(ActorId, ct, UserRole.Admin, UserRole.Surveyor, UserRole.Qc);
             await authorizer.EnsureProjectScopeAsync(projectId, ct);
+            if (User.IsInRole(nameof(UserRole.Qc)))
+                return await new ProjectReportData(db).AccessibleProjects(User).AnyAsync(p => p.Id == projectId, ct);
             return true;
         }
         catch (UnauthorizedAccessException) { return false; }
@@ -302,4 +322,5 @@ public sealed partial class InspectionActivitiesController
 
 public sealed record CategoryChecklistOpen(DateOnly InspectionDate);
 
-public sealed record CategoryCheckpointSelection(string[] Codes, int Version, Dictionary<string, string>? CategoryChanges = null);
+public sealed record CategoryCheckpointSelection(string[] Codes, int Version, Dictionary<string, string>? CategoryChanges = null,
+    Dictionary<string, string>? DescriptionChanges = null);

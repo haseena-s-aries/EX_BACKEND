@@ -6,10 +6,10 @@ public enum JobStatus { Draft, InProgress, Submitted, InReview, Approved, Closed
 public enum InspectionType { Visual, Close, Detailed }
 public enum SurveyStatus { Draft, Submitted, Returned, Approved }
 public enum FindingStatus { Open, RectificationSubmitted, Verified, Closed }
-public enum FileCategory { Drawing, Checklist, EquipmentPhoto, FindingPhoto, RepairProof, Certificate, Report }
+public enum FileCategory { Drawing, Checklist, EquipmentPhoto, FindingPhoto, RepairProof, Certificate, Report, ProjectCommonLayout }
 public enum QcReviewStatus { PendingReview, InReview, ChangesRequested, Approved }
 public enum QcSeverity { Low, Medium, High, Critical }
-public enum EquipmentInspectionStatus { NotStarted, InProgress, Completed, ChangesRequested, QcApproved }
+public enum EquipmentInspectionStatus { NotStarted, InProgress, Hold, Completed, PendingQcReview, ChangesRequested, QcApproved }
 public enum ChecklistLifecycleStatus { Draft, PendingTechnicalApproval, Published, Archived }
 
 public class User
@@ -25,6 +25,25 @@ public class User
     public Guid? ApprovalReviewedByUserId { get; set; }
     public DateTimeOffset? ApprovalReviewedAt { get; set; }
     public bool IsActive { get; set; } = true;
+    public string? PhoneNumber { get; set; }
+    public string? Designation { get; set; }
+    public string? ProfilePhotoPath { get; set; }
+    public int AuthVersion { get; set; }
+    public DateTimeOffset? RegisteredAt { get; set; }
+    public string? ApprovalRejectionReason { get; set; }
+}
+
+public class AccountActionToken
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid UserId { get; set; }
+    public required string Purpose { get; set; }
+    public required string TokenHash { get; set; }
+    public string? NewEmail { get; set; }
+    public int AuthVersion { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset ExpiresAt { get; set; }
+    public DateTimeOffset? ConsumedAt { get; set; }
 }
 
 public class RegistrationOtp
@@ -152,6 +171,7 @@ public class SurveySession
     public DateTimeOffset? DueDate { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public Guid? LastModifiedByUserId { get; set; }
 }
 
 public class SurveyAnswer

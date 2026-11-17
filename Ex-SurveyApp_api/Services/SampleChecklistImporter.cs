@@ -14,6 +14,9 @@ public sealed record SampleChecklistSource(string SourceRevision, string SourceS
 
 public static class SampleChecklistImporter
 {
+    public static string ControlledSourceReference(SampleChecklistSource source) =>
+        $"Sample checklist.pdf; {source.SourceRevision}; SHA256:{source.SourceSha256}";
+
     public static SampleChecklistSource ReadSource()
     {
         using var stream = typeof(SampleChecklistImporter).Assembly.GetManifestResourceStream("ExSurvey.SampleChecklist")
@@ -46,7 +49,7 @@ public static class SampleChecklistImporter
                 InspectionType = grade, Version = maxVersion + 1, IsActive = false,
                 LifecycleStatus = ChecklistLifecycleStatus.Draft, CreatedByUserId = actor,
                 StandardReference = "User-supplied sample; not verified against a current standard",
-                ControlledSourceReference = $"Sample checklist.pdf; {source.SourceRevision}; SHA256:{source.SourceSha256}",
+                ControlledSourceReference = ControlledSourceReference(source),
                 ApplicableProtectionTypes = "d,e,n,i,p"
             };
             db.ChecklistTemplates.Add(template);

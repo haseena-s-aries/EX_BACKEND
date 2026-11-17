@@ -1,4 +1,4 @@
-using Ex_SurveyApp_api.Data;
+﻿using Ex_SurveyApp_api.Data;
 using Ex_SurveyApp_api.Controllers;
 using Ex_SurveyApp_api.Models;
 using Ex_SurveyApp_api.Services;
@@ -27,7 +27,8 @@ builder.Logging.AddConsole();
 
 // Add services to the container.
 
-builder.Services.AddControllers().AddJsonOptions(options =>
+builder.Services.AddScoped<FieldworkMutationFilter>();
+builder.Services.AddControllers(o => o.Filters.AddService<FieldworkMutationFilter>()).AddJsonOptions(options =>
     options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: false)));
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
@@ -72,8 +73,13 @@ if (string.IsNullOrWhiteSpace(jwtKey) || Encoding.UTF8.GetByteCount(jwtKey) < 32
 builder.Services.AddSingleton(new JwtSettings(jwtIssuer, jwtAudience, jwtKey));
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
 builder.Services.AddSingleton<TokenService>();
+builder.Services.AddSingleton<AccountMailQueue>();
+builder.Services.AddSingleton<IAccountMailQueue>(s => s.GetRequiredService<AccountMailQueue>());
+builder.Services.AddHostedService(s => s.GetRequiredService<AccountMailQueue>());
 builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("EmailSettings"));
 builder.Services.AddScoped<IEmailService, SmtpEmailService>();
+builder.Services.AddScoped<ProjectScheduling>();
+builder.Services.AddHostedService<ProjectDelayMonitor>();
 builder.Services.Configure<ProjectPhotoStorageSettings>(builder.Configuration.GetSection("ProjectPhotoStorage"));
 builder.Services.Configure<GeneratedReportArtifactStorageSettings>(builder.Configuration.GetSection("GeneratedReportArtifactStorage"));
 builder.Services.Configure<OfflineInspectionOptions>(builder.Configuration.GetSection("OfflineInspection"));
@@ -107,7 +113,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 var db = context.HttpContext.RequestServices.GetRequiredService<SurveyDbContext>();
                 var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id);
                 if (user is null || !user.IsActive || user.ApprovalStatus != ApprovalStatus.Approved ||
-                    !context.Principal!.IsInRole(user.Role.ToString()))
+                    !context.Principal!.IsInRole(user.Role.ToString()) || !TokenService.IsCurrentSession(context.Principal!, user))
                     context.Fail("User is inactive, unapproved, or role has changed.");
             }
         };
@@ -177,10 +183,10 @@ if ((!string.IsNullOrWhiteSpace(adminEmail) && !string.IsNullOrWhiteSpace(adminP
     var db = scope.ServiceProvider.GetRequiredService<SurveyDbContext>();
     var passwordHasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher<User>>();
     if (!string.IsNullOrWhiteSpace(adminEmail) && !string.IsNullOrWhiteSpace(adminPassword))
-        await BootstrapAccountProvisioner.ProvisionAsync(db, passwordHasher, adminEmail, adminPassword,
+        await BootstrapAccountProvisioner.ProvisionStartupAsync(db, passwordHasher, "Admin", adminEmail, adminPassword,
             adminDisplayName, UserRole.Admin);
     if (!string.IsNullOrWhiteSpace(managerEmail) && !string.IsNullOrWhiteSpace(managerPassword))
-        await BootstrapAccountProvisioner.ProvisionAsync(db, passwordHasher, managerEmail, managerPassword,
+        await BootstrapAccountProvisioner.ProvisionStartupAsync(db, passwordHasher, "Manager", managerEmail, managerPassword,
             managerDisplayName, UserRole.Manager);
 }
 

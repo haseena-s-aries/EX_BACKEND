@@ -16,7 +16,7 @@ namespace Ex_SurveyApp_api.Controllers;
 [Authorize]
 [EndpointScopeInventory(EndpointScopeKind.TenantResource)]
 [Route("api/projects")]
-public class ProjectController(
+public partial class ProjectController(
     SurveyDbContext db,
     IProjectPhotoStorage photoStorage,
     ILogger<ProjectController> logger) : ControllerBase
@@ -40,6 +40,8 @@ public class ProjectController(
     private async Task<ActionResult<ProjectResponse>> CreateProjectCore(
         UpsertProjectRequest request, IFormFile? plan, IFormFile? logo, CancellationToken cancellationToken)
     {
+        if (request.TargetDate is null) return BadRequest(new { error = "Target Date is required." });
+        if (request.ClearClientAssignments) request = request with {AssignedClientIds = []};
         var validationError = await ValidateProjectRequest(request, null, cancellationToken);
         if (validationError is not null)
             return validationError;
@@ -47,20 +49,22 @@ public class ProjectController(
         var now = DateTimeOffset.UtcNow;
         var project = new Project
         {
-            ProjectName = request.ProjectName.Trim().ToUpperInvariant(),
-            Sector = request.Sector.Trim(),
-            JobNo = request.JobNo.Trim().ToUpperInvariant(),
-            Location = request.Location.Trim().ToUpperInvariant(),
-            VesselOrSiteName = request.VesselOrSiteName.Trim().ToUpperInvariant(),
+            ProjectName = request.ProjectName.Trim(),
+            Sector = request.Sector?.Trim() ?? "",
+            JobNo = request.JobNo.Trim(),
+            Location = request.Location.Trim(),
+            VesselOrSiteName = request.VesselOrSiteName.Trim(),
             Status = request.Status,
+            TargetDate = request.TargetDate,
             AssignedSurveyorId = request.AssignedSurveyorId,
             AssignedQcId = request.AssignedQcId,
+            AdditionalQcId = request.AdditionalQcId,
             AssignedClientId = request.AssignedClientId,
             CreatedByUserId = CurrentUserId,
             CreatedAt = now,
             UpdatedAt = now
         };
-        ApplyMetadata(project, request);
+        ApplyMetadata(project, request, preserveCase: true);
         await LoadCompany(project, cancellationToken);
         try {
             if (plan is not null) await SavePlan(project, plan, cancellationToken);
@@ -71,7 +75,10 @@ public class ProjectController(
             if (ex is ProjectPhotoValidationException) return BadRequest(new {error = ex.Message});
             throw;
         }
+        await SyncClientAssignments(project, request.AssignedClientIds ?? (request.AssignedClientId is Guid clientId ? [clientId] : []), cancellationToken);
+        await RecordAssignmentNotices(project, [], cancellationToken);
         db.Projects.Add(project);
+        RecordTargetDate(project, null);
 
         try
         {
@@ -99,9 +106,16 @@ public class ProjectController(
             .Select(x => new ProjectSummaryResponse(
                 x.Id, x.ProjectName, x.Sector, x.JobNo, x.Location, x.VesselOrSiteName,
                 x.Status, x.AssignedSurveyorId, x.AssignedQcId, x.AssignedClientId, x.CreatedByUserId,
-                x.CreatedAt, x.UpdatedAt, x.Areas.Count))
+                x.CreatedAt, x.UpdatedAt, x.Areas.Count, x.TargetDate, null, x.AdditionalSurveyorId, db.ProjectReportWorkflows.Where(w => w.ProjectId == x.Id).Select(w => w.Status).FirstOrDefault() ?? "Ongoing", x.ClientAssignments.Where(a => a.IsActive).Select(a => a.ClientUserId).ToArray()))
             .ToListAsync(cancellationToken);
-        return Ok(projects);
+        if (CurrentRole is not (nameof(UserRole.Admin) or nameof(UserRole.Manager))) return Ok(projects);
+        var ids = (await ManageSurveyors().Select(p => p.Id).ToListAsync(cancellationToken)).ToHashSet();
+        var history = await db.ProjectScheduleEntries.AsNoTracking().Where(x => ids.Contains(x.ProjectId) && x.Kind == "Schedule")
+            .ToListAsync(cancellationToken);
+        var byProject = history.ToLookup(x => x.ProjectId);
+        var today = ProjectScheduling.Today;
+        return Ok(projects.Select(p => !ids.Contains(p.Id) ? p : p with { Schedule = ProjectScheduling.Summarize(
+            p.Status, p.TargetDate, p.AssignedSurveyorId, p.AdditionalSurveyorId, byProject[p.Id], today) }));
     }
 
     [HttpGet("assignment-options")]
@@ -127,6 +141,7 @@ public class ProjectController(
         if (!await AccessibleProjects().AnyAsync(x => x.Id == id, cancellationToken))
             return NotFound(new { error = "Project was not found." });
         var project = await AccessibleProjects()
+            .Include(x => x.ClientAssignments).ThenInclude(a => a.ClientUser)
             .Include(x => x.OurCompany)
             .Include(x => x.Areas)
             .ThenInclude(x => x.Photos)
@@ -146,12 +161,24 @@ public class ProjectController(
             {
                 EquipmentId = inspection.AreaEquipmentId!.Value,
                 inspection.Status,
+                inspection.UpdatedAt,
                 QcStatus = (QcReviewStatus?)review.Status
             }).ToListAsync(cancellationToken);
-        var inspectionStatuses = inspectionRows.ToDictionary(
-            x => x.EquipmentId,
-            x => GetInspectionStatus(x.Status, x.QcStatus));
-        return Ok(ToResponse(project, inspectionStatuses));
+        var statusRows = inspectionRows.Select(x => (x.EquipmentId, x.UpdatedAt,
+            Status: GetInspectionStatus(x.Status, x.QcStatus))).ToList();
+        var activityRows = await (
+            from activity in db.InspectionActivities.AsNoTracking()
+            join task in db.InspectionTasks.AsNoTracking() on activity.InspectionTaskId equals task.Id
+            where task.AreaEquipmentId.HasValue && equipmentIds.Contains(task.AreaEquipmentId.Value)
+            orderby activity.UpdatedAt
+            select new { EquipmentId = task.AreaEquipmentId!.Value, activity.ReviewStatus, activity.IsOnHold, activity.UpdatedAt })
+            .ToListAsync(cancellationToken);
+        foreach (var activity in activityRows)
+            statusRows.Add((activity.EquipmentId, activity.UpdatedAt,
+                QcWorkflowStatus.InspectionStatus(activity.ReviewStatus, activity.IsOnHold)));
+        var inspectionStatuses = statusRows.GroupBy(x => x.EquipmentId)
+            .ToDictionary(group => group.Key, group => group.OrderByDescending(x => x.UpdatedAt).First().Status);
+        return Ok(ToResponse(project, inspectionStatuses) with { ReportStatus = await db.ProjectReportWorkflows.Where(w => w.ProjectId == id).Select(w => w.Status).FirstOrDefaultAsync(cancellationToken) ?? "Ongoing" });
     }
 
     [HttpPut("{id:guid}")]
@@ -173,14 +200,20 @@ public class ProjectController(
     private async Task<ActionResult<ProjectResponse>> UpdateProjectCore(
         Guid id, UpsertProjectRequest request, IFormFile? plan, IFormFile? logo, CancellationToken cancellationToken)
     {
-        var project = await db.Projects.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        var project = await ManageSurveyors().Include(p => p.ClientAssignments).ThenInclude(a => a.ClientUser).FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (project is null)
             return NotFound(new { error = "Project was not found." });
 
+        if (request.TargetDate is null && project.TargetDate is null)
+            return BadRequest(new { error = "Target Date is required when editing this project." });
+        if (request.ClearClientAssignments) request = request with {AssignedClientIds = []};
+        if (!request.UpdateAdditionalQcAssignment) request = request with { AdditionalQcId = project.AdditionalQcId };
+        if (request.PreserveSurveyorAssignment) request = request with { AssignedSurveyorId = project.AssignedSurveyorId };
         var validationError = await ValidateProjectRequest(request, id, cancellationToken);
         if (validationError is not null)
             return validationError;
 
+        var previousAssignments = AssignmentMembers(project);
         var previousPlan = project.HazardousAreaPlanPath;
         var previousFileName = project.HazardousAreaPlanFileName;
         var previousLogo = project.ClientLogoPath;
@@ -197,19 +230,44 @@ public class ProjectController(
         ApplyMetadata(project, request);
         await LoadCompany(project, cancellationToken);
         project.ProjectName = request.ProjectName.Trim().ToUpperInvariant();
-        project.Sector = request.Sector.Trim();
+        if (request.Sector is not null) project.Sector = request.Sector.Trim();
         project.JobNo = request.JobNo.Trim().ToUpperInvariant();
         project.Location = request.Location.Trim().ToUpperInvariant();
         project.VesselOrSiteName = request.VesselOrSiteName.Trim().ToUpperInvariant();
         project.Status = request.Status;
-        project.AssignedSurveyorId = request.AssignedSurveyorId;
+        if (request.TargetDate is DateOnly target && project.TargetDate != target)
+        {
+            var previous = project.TargetDate;
+            project.TargetDate = target;
+            RecordTargetDate(project, previous);
+        }
+        if (project.AssignedSurveyorId != request.AssignedSurveyorId)
+            await TransferPrimary(project, request.AssignedSurveyorId, false, "Primary Surveyor changed in project settings.", cancellationToken);
+        if (project.AssignedQcId != request.AssignedQcId || project.AdditionalQcId != request.AdditionalQcId)
+        {
+            db.AuditLogs.Add(new AuditLog
+            {
+                EntityType = "Project", EntityId = id, ActorId = CurrentUserId, Action = "QC Assignment",
+                Comments = System.Text.Json.JsonSerializer.Serialize(new QcAssignmentAudit(
+                    project.AssignedQcId, project.AdditionalQcId, request.AssignedQcId, request.AdditionalQcId))
+            });
+        }
         project.AssignedQcId = request.AssignedQcId;
-        project.AssignedClientId = request.AssignedClientId;
+        project.AdditionalQcId = request.AdditionalQcId;
+        var clientIds = request.AssignedClientIds ?? project.ClientAssignments.Where(a => a.IsActive && a.ClientUserId != project.AssignedClientId)
+            .Select(a => a.ClientUserId).Concat(request.AssignedClientId is Guid legacyId ? new[] {legacyId} : Array.Empty<Guid>()).ToArray();
+        await SyncClientAssignments(project, clientIds, cancellationToken);
         project.UpdatedAt = DateTimeOffset.UtcNow;
+        await RecordAssignmentNotices(project, previousAssignments, cancellationToken);
 
         try
         {
             await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            await RollBackPlan();
+            return Conflict(new { error = "The project assignment or Target Date changed. Reload the project and retry." });
         }
         catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
         {
@@ -219,7 +277,7 @@ public class ProjectController(
         catch { await RollBackPlan(); throw; }
         if (plan is not null && previousPlan is not null) await DeleteStoredPhotos([previousPlan]);
         if ((logo is not null || request.RemoveClientLogo) && previousLogo is not null) await DeleteStoredPhotos([previousLogo]);
-        return Ok(ToResponse(project));
+        return Ok(ToResponse(project) with { ReportStatus = await db.ProjectReportWorkflows.Where(w => w.ProjectId == project.Id).Select(w => w.Status).FirstOrDefaultAsync(cancellationToken) ?? "Ongoing" });
 
         async Task RollBackPlan()
         {
@@ -255,7 +313,8 @@ public class ProjectController(
         var findingIds = findings.Select(x => x.Id).ToArray();
         var files = await db.Files.Where(x =>
             (x.SurveySessionId.HasValue && inspectionIds.Contains(x.SurveySessionId.Value)) ||
-            (x.FindingId.HasValue && findingIds.Contains(x.FindingId.Value))).ToListAsync(cancellationToken);
+            (x.FindingId.HasValue && findingIds.Contains(x.FindingId.Value)) ||
+            (x.ProjectId == id && x.Category == FileCategory.ProjectCommonLayout)).ToListAsync(cancellationToken);
         var fileIds = files.Select(x => x.Id).ToArray();
         if (await db.ReportRevisions.AnyAsync(x => x.FileId.HasValue && fileIds.Contains(x.FileId.Value), cancellationToken))
             return Conflict(new {error = "This project has files linked to reports. Remove those report links before deleting the project."});
@@ -270,6 +329,7 @@ public class ProjectController(
         db.AreaEquipment.RemoveRange(equipment);
         db.ProjectAreaPhotos.RemoveRange(project.Areas.SelectMany(x => x.Photos));
         db.ProjectAreas.RemoveRange(project.Areas);
+        db.ProjectClientAssignments.RemoveRange(await db.ProjectClientAssignments.Where(a => a.ProjectId == id).ToListAsync(cancellationToken));
         db.Projects.Remove(project);
         db.AuditLogs.Add(new AuditLog {ActorId = CurrentUserId, EntityType = "Project", EntityId = id,
             Action = "Project Deleted", Comments = $"{project.ProjectName}; {project.Areas.Count} areas; {equipment.Count} equipment; {inspections.Count} inspections"});
@@ -289,7 +349,7 @@ public class ProjectController(
             return BadRequest(new { error = "AreaName is required." });
         var isSurveyor = User.IsInRole(nameof(UserRole.Surveyor));
         var actorId = CurrentUserId;
-        var project = await db.Projects.FirstOrDefaultAsync(x => x.Id == projectId && (!isSurveyor || x.AssignedSurveyorId == actorId), cancellationToken);
+        var project = await db.Projects.FirstOrDefaultAsync(x => x.Id == projectId && (!isSurveyor || (x.AssignedSurveyorId == actorId || x.AdditionalSurveyorId == actorId)), cancellationToken);
         if (project is null)
             return NotFound(new { error = "Project was not found." });
 
@@ -406,11 +466,11 @@ public class ProjectController(
         }).ToList();
         db.ProjectAreaPhotos.AddRange(photos);
         area.LayoutImagePath ??= await db.ProjectAreaPhotos.AsNoTracking()
-            .Where(x => x.ProjectAreaId == areaId)
+            .Where(x => x.ProjectAreaId == areaId && !x.FilePath.EndsWith(".pdf"))
             .OrderBy(x => x.UploadedAt)
             .ThenBy(x => x.Id)
             .Select(x => x.FilePath)
-            .FirstOrDefaultAsync(cancellationToken) ?? photos[0].FilePath;
+            .FirstOrDefaultAsync(cancellationToken) ?? photos.FirstOrDefault(p => !StoredProjectPhoto.IsPdfFile(p.FilePath))?.FilePath;
         await TouchProject(projectId, cancellationToken);
         try
         {
@@ -479,10 +539,15 @@ public class ProjectController(
         if (photo is null)
             return NotFound(new { error = "Project area photo was not found." });
 
+        if (await db.AreaEquipment.AnyAsync(x => x.LayoutImageKey == $"area:{photoId}", cancellationToken))
+            return Conflict(new { error = "This image has saved equipment markings. Move those markings to another image before removing it." });
+        if (area.LayoutImagePath == photo.FilePath && await db.AreaEquipment.AnyAsync(x => x.AreaId == areaId && x.LayoutImageKey == null, cancellationToken))
+            return Conflict(new { error = "The current layout has legacy equipment markings. Move those markings to another image before removing it." });
+
         if (area.LayoutImagePath == photo.FilePath)
         {
             area.LayoutImagePath = await db.ProjectAreaPhotos.AsNoTracking()
-                .Where(x => x.ProjectAreaId == areaId && x.Id != photoId)
+                .Where(x => x.ProjectAreaId == areaId && x.Id != photoId && !x.FilePath.EndsWith(".pdf"))
                 .OrderBy(x => x.UploadedAt)
                 .ThenBy(x => x.Id)
                 .Select(x => x.FilePath)
@@ -518,8 +583,8 @@ public class ProjectController(
         Response.Headers["X-Content-Type-Options"] = "nosniff";
         return File(file.Stream, file.ContentType, enableRangeProcessing: true);
     }
-    private static void ApplyMetadata(Project project, UpsertProjectRequest request) {
-        static string? Upper(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim().ToUpperInvariant();
+    private static void ApplyMetadata(Project project, UpsertProjectRequest request, bool preserveCase = false) {
+        string? Upper(string? value) => string.IsNullOrWhiteSpace(value) ? null : preserveCase ? value.Trim() : value.Trim().ToUpperInvariant();
         project.UidNumber = Upper(request.UidNumber); project.DocumentNumber = Upper(request.DocumentNumber);
         project.Revision = Upper(request.Revision); project.Description = Upper(request.Description); project.ClientName = Upper(request.ClientName);
         project.OurCompanyId = request.OurCompanyId;
@@ -540,9 +605,9 @@ public class ProjectController(
         return CurrentRole switch
         {
             nameof(UserRole.Admin) or nameof(UserRole.Manager) => query,
-            nameof(UserRole.Surveyor) => query.Where(x => x.AssignedSurveyorId == CurrentUserId),
-            nameof(UserRole.Qc) => query.Where(x => x.AssignedQcId == CurrentUserId),
-            nameof(UserRole.Client) => query.Where(x => x.AssignedClientId == CurrentUserId),
+            nameof(UserRole.Surveyor) => query.Where(x => (x.AssignedSurveyorId == CurrentUserId || x.AdditionalSurveyorId == CurrentUserId)),
+            nameof(UserRole.Qc) => query.Where(x => x.AssignedQcId == CurrentUserId || x.AdditionalQcId == CurrentUserId),
+            nameof(UserRole.Client) => query.Where(x => x.AssignedClientId == CurrentUserId || x.ClientAssignments.Any(a => a.IsActive && a.ClientUserId == CurrentUserId)),
             _ => query.Where(_ => false)
         };
     }
@@ -560,10 +625,11 @@ public class ProjectController(
     private async Task<ObjectResult?> ValidateProjectRequest(
         UpsertProjectRequest request, Guid? projectId, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(request.ProjectName) || string.IsNullOrWhiteSpace(request.Sector) ||
+        if (string.IsNullOrWhiteSpace(request.ProjectName) ||
             string.IsNullOrWhiteSpace(request.JobNo) || string.IsNullOrWhiteSpace(request.Location) ||
             string.IsNullOrWhiteSpace(request.VesselOrSiteName))
-            return BadRequest(new { error = "ProjectName, Sector, JobNo, Location, and VesselOrSiteName are required." });
+            return BadRequest(new { error = "ProjectName, JobNo, Location, and VesselOrSiteName are required." });
+        if (string.IsNullOrWhiteSpace(request.ClientName)) return BadRequest(new { error = "Client Company Name is required." });
         if (request.AssignedSurveyorId == Guid.Empty || request.AssignedQcId == Guid.Empty)
             return BadRequest(new { error = "Surveyor and QC assignments are required." });
         if (!Enum.IsDefined(request.Status))
@@ -576,14 +642,44 @@ public class ProjectController(
         if (await db.Projects.AnyAsync(x => x.JobNo == jobNo && x.Id != projectId, cancellationToken))
             return Conflict(new { error = "JobNo already exists." });
 
-        var ids = new Guid?[] { request.AssignedSurveyorId, request.AssignedQcId, request.AssignedClientId };
+        var clientIds = request.AssignedClientIds ?? (request.AssignedClientId is Guid legacyClientId ? [legacyClientId] : Array.Empty<Guid>());
+        var ids = new Guid?[] { request.AssignedSurveyorId, request.AssignedQcId, request.AssignedClientId, request.AdditionalQcId }.Concat(clientIds.Select(id => (Guid?)id)).ToArray();
         var users = await db.Users.AsNoTracking().Where(x => ids.Contains(x.Id)).ToDictionaryAsync(x => x.Id, cancellationToken);
+        if (request.AdditionalQcId == request.AssignedQcId)
+            return BadRequest(new { error = "Primary QC and Additional QC must be different users." });
+        if (request.AdditionalQcId is Guid additionalQcId && HttpContext.RequestServices?.GetService<ITenantContextAccessor>()?.Current is { } tenant &&
+            !await db.TenantMemberships.AnyAsync(m => m.TenantId == tenant.TenantId && m.UserId == additionalQcId &&
+                m.Status == TenantMembershipStatus.Active, cancellationToken))
+            return BadRequest(new { error = "Choose a QC user with active membership in this workspace." });
+
         var assignmentError = ValidateAssignment(users, request.AssignedSurveyorId, UserRole.Surveyor, "AssignedSurveyorId")
                               ?? ValidateAssignment(users, request.AssignedQcId, UserRole.Qc, "AssignedQcId")
+                              ?? (request.AdditionalQcId is Guid qcId ? ValidateAssignment(users, qcId, UserRole.Qc, "AdditionalQcId") : null)
                               ?? (request.AssignedClientId.HasValue
                                   ? ValidateAssignment(users, request.AssignedClientId.Value, UserRole.Client, "AssignedClientId")
                                   : null);
+        foreach (var clientId in clientIds.Distinct())
+        {
+            assignmentError ??= ValidateAssignment(users, clientId, UserRole.Client, "Assign Client ID");
+            if (HttpContext.RequestServices?.GetService<ITenantContextAccessor>()?.Current is { } clientTenant &&
+                !await db.TenantMemberships.AnyAsync(m => m.TenantId == clientTenant.TenantId && m.UserId == clientId && m.Status == TenantMembershipStatus.Active, cancellationToken))
+                assignmentError ??= "Choose Client users with active membership in this workspace.";
+        }
         return assignmentError is null ? null : BadRequest(new { error = assignmentError });
+    }
+
+    private async Task SyncClientAssignments(Project project, IEnumerable<Guid> requested, CancellationToken ct)
+    {
+        var ids = requested.Distinct().ToArray();
+        var before = project.ClientAssignments.Where(a => a.IsActive).Select(a => a.ClientUserId)
+            .Concat(project.AssignedClientId is Guid oldId ? new[] {oldId} : Array.Empty<Guid>()).Distinct().ToArray();
+        var users = await db.Users.Where(u => ids.Contains(u.Id)).ToDictionaryAsync(u => u.Id, ct);
+        foreach (var link in project.ClientAssignments) { link.IsActive = ids.Contains(link.ClientUserId); link.UpdatedAt = DateTimeOffset.UtcNow; }
+        foreach (var id in ids.Where(id => !project.ClientAssignments.Any(a => a.ClientUserId == id)))
+            project.ClientAssignments.Add(new ProjectClientAssignment {ProjectId = project.Id, ClientUserId = id, ClientUser = users[id]});
+        project.AssignedClientId = ids.Length > 0 ? ids[0] : null;
+        if (!before.Order().SequenceEqual(ids.Order())) db.AuditLogs.Add(new AuditLog {EntityType = "Project", EntityId = project.Id,
+            ActorId = CurrentUserId, Action = "Client Assignment", Comments = System.Text.Json.JsonSerializer.Serialize(new {PreviousClientIds = before, AssignedClientIds = ids})});
     }
 
     private static string? ValidateAssignment(
@@ -638,7 +734,9 @@ public class ProjectController(
                 ? "application/pdf" : Path.GetExtension(project.HazardousAreaPlanPath).Equals(".png", StringComparison.OrdinalIgnoreCase) ? "image/png" : "image/jpeg",
         project.UidNumber, project.DocumentNumber, project.Revision, project.Description, project.ClientName,
         project.ClientLogoPath is null ? null : $"/api/projects/{project.Id}/client-logo",
-        project.OurCompanyId, project.OurCompany is null ? null : CompanyAssets.Response(project.OurCompany));
+        project.OurCompanyId, project.OurCompany is null ? null : CompanyAssets.Response(project.OurCompany), project.TargetDate, project.AdditionalQcId, AssignedClientIds: project.ClientAssignments.Where(a => a.IsActive).Select(a => a.ClientUserId)
+            .Concat(project.AssignedClientId is Guid cid ? new[] {cid} : Array.Empty<Guid>()).Distinct().ToArray(),
+        AssignedClients: project.ClientAssignments.Where(a => a.IsActive && a.ClientUser != null).Select(a => new ProjectAssignedClientResponse(a.ClientUserId, a.ClientUser.DisplayName, a.ClientUser.Email)).ToArray());
 
     private static ProjectAreaResponse ToResponse(
         ProjectArea area, IReadOnlyDictionary<Guid, EquipmentInspectionStatus>? inspectionStatuses = null) => new(
@@ -649,15 +747,16 @@ public class ProjectController(
             x.Manufacturer, x.ProtectionDetails, x.CertificateNumber, x.RfidTagUid, x.CreatedAt,
             inspectionStatuses is not null && inspectionStatuses.TryGetValue(x.Id, out var status)
                 ? status.ToString()
-                : EquipmentInspectionStatus.NotStarted.ToString())).ToArray());
+                : EquipmentInspectionStatus.NotStarted.ToString(), x.LayoutImageKey, x.MarkingNo)).ToArray());
 
     private static EquipmentInspectionStatus GetInspectionStatus(SurveyStatus surveyStatus, QcReviewStatus? qcStatus) =>
         QcWorkflowStatus.InspectionStatus(surveyStatus, qcStatus);
 
     private static string? GetLayoutImagePath(ProjectArea area)
     {
-        var layoutPhoto = area.Photos.FirstOrDefault(x => x.FilePath == area.LayoutImagePath)
-                          ?? area.Photos.OrderBy(x => x.UploadedAt).ThenBy(x => x.Id).FirstOrDefault();
+        var imagePhotos = area.Photos.Where(x => !StoredProjectPhoto.IsPdfFile(x.FilePath));
+        var layoutPhoto = imagePhotos.FirstOrDefault(x => x.FilePath == area.LayoutImagePath)
+                          ?? imagePhotos.OrderBy(x => x.UploadedAt).ThenBy(x => x.Id).FirstOrDefault();
         return layoutPhoto is null
             ? null
             : $"/api/projects/{area.ProjectId}/areas/{area.Id}/photos/{layoutPhoto.Id}";

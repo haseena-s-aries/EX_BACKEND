@@ -67,14 +67,14 @@ public sealed class InspectionActivityAuthorizer(
         }
         var id = actorContext.UserId ?? throw new UnauthorizedAccessException("Authenticated actor is required.");
         var actor = await db.Users.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct) ?? throw new UnauthorizedAccessException("Actor is unavailable.");
-        var project = await db.Projects.AsNoTracking().SingleOrDefaultAsync(x => x.Id == projectId, ct) ?? throw new UnauthorizedAccessException("Project was not found.");
+        var project = await db.Projects.AsNoTracking().Include(p => p.ClientAssignments).SingleOrDefaultAsync(x => x.Id == projectId, ct) ?? throw new UnauthorizedAccessException("Project was not found.");
         var permitted = actor.Role switch
         {
             UserRole.Admin => true,
             UserRole.Manager => project.CreatedByUserId == actor.Id || await db.Users.AnyAsync(q => q.Id == project.AssignedQcId && q.ManagerId == actor.Id, ct),
-            UserRole.Surveyor => project.AssignedSurveyorId == actor.Id,
-            UserRole.Qc => project.AssignedQcId == actor.Id,
-            UserRole.Client => project.AssignedClientId == actor.Id,
+            UserRole.Surveyor => (project.AssignedSurveyorId == actor.Id || project.AdditionalSurveyorId == actor.Id),
+            UserRole.Qc => project.AssignedQcId == actor.Id || project.AdditionalQcId == actor.Id,
+            UserRole.Client => (project.AssignedClientId == actor.Id || project.ClientAssignments.Any(a => a.IsActive && a.ClientUserId == actor.Id)),
             _ => false
         };
         if (!permitted) throw new UnauthorizedAccessException("Project is outside the actor's assigned project scope.");
@@ -92,14 +92,14 @@ public sealed class InspectionActivityAuthorizer(
             if (equipmentProject != projectId) throw new UnauthorizedAccessException("Task equipment does not belong to its plan project.");
             var actorId = actorContext.UserId ?? Guid.Empty;
             var actor = await db.Users.AsNoTracking().SingleOrDefaultAsync(x => x.Id == actorId, ct) ?? throw new UnauthorizedAccessException("Actor is unavailable.");
-            var project = await db.Projects.AsNoTracking().SingleOrDefaultAsync(x => x.Id == projectId, ct) ?? throw new UnauthorizedAccessException("Owning project is unavailable.");
+            var project = await db.Projects.AsNoTracking().Include(p => p.ClientAssignments).SingleOrDefaultAsync(x => x.Id == projectId, ct) ?? throw new UnauthorizedAccessException("Owning project is unavailable.");
             var permitted = actor.Role switch
             {
                 UserRole.Admin => true,
                 UserRole.Manager => project.CreatedByUserId == actor.Id || await db.Users.AnyAsync(q => q.Id == project.AssignedQcId && q.ManagerId == actor.Id, ct),
-                UserRole.Surveyor => project.AssignedSurveyorId == actor.Id && task.AssignedUserId == actor.Id,
-                UserRole.Qc => project.AssignedQcId == actor.Id,
-                UserRole.Client => project.AssignedClientId == actor.Id,
+                UserRole.Surveyor => (project.AssignedSurveyorId == actor.Id || project.AdditionalSurveyorId == actor.Id),
+                UserRole.Qc => project.AssignedQcId == actor.Id || project.AdditionalQcId == actor.Id,
+                UserRole.Client => (project.AssignedClientId == actor.Id || project.ClientAssignments.Any(a => a.IsActive && a.ClientUserId == actor.Id)),
                 _ => false
             };
             if (!permitted) throw new UnauthorizedAccessException("Task is outside the actor's assigned project scope.");
@@ -155,7 +155,8 @@ public sealed class InspectionActivityApplicationService(
     IInspectionTenantOwnershipResolver ownershipResolver,
     ICorrectiveActionPolicy closurePolicy,
     IOptions<InspectionActivityOptions> options,
-    TimeProvider clock) : IInspectionActivityApplicationService
+    TimeProvider clock,
+    IAccountMailQueue? mailQueue = null) : IInspectionActivityApplicationService
 {
     private Guid ActorId => actorContext.UserId ?? throw new UnauthorizedAccessException("Authenticated actor is required.");
     private void EnsureEnabled() { if (!options.Value.Enabled) throw new InspectionFeatureInactiveException(); }
@@ -196,6 +197,7 @@ public sealed class InspectionActivityApplicationService(
         var activity = InspectionActivityRules.Create(new(task.Id, request.Grade, actor.Id, request.StartedAt, request.CompletedAt, checklist.Id, actor.DisplayName));
         var revision = new InspectionActivityRevision { InspectionActivityId = activity.Id, RevisionNumber = 1, ContentHash = HashActivity(activity), CreatedByUserId = actor.Id, CreatedAt = clock.GetUtcNow() };
         activity.UpdatedAt = clock.GetUtcNow();
+        activity.LastModifiedByUserId = actor.Id;
         db.InspectionActivities.Add(activity); db.InspectionActivityRevisions.Add(revision);
         await db.SaveChangesAsync(ct);
         return Map(activity);
@@ -206,7 +208,7 @@ public sealed class InspectionActivityApplicationService(
         EnsureEnabled(); InspectionActivityContractValidation.Validate(request);
         var actor = await authorizer.RequireActorAsync(ActorId, ct, UserRole.Surveyor, UserRole.Admin, UserRole.Manager);
         var (activity, task) = await authorizer.EnsureActivityScopeAsync(activityId, ct);
-        EnsureTaskWriter(task, actor);
+        await EnsureTaskWriter(task, actor, ct);
         EnsureEditable(activity);
         RequireExpectedVersion(activity, request.ActivityRowVersion);
         var definition = await db.CheckpointDefinitionSnapshots.AsNoTracking().SingleOrDefaultAsync(x => x.Id == request.CheckpointDefinitionSnapshotId, ct)
@@ -239,6 +241,7 @@ public sealed class InspectionActivityApplicationService(
         var response = new CheckpointResponseRevision { ActivityRevisionId = activityRevision.Id, CheckpointDefinitionSnapshotId = definition.Id, RevisionNumber = checked(next + 1), ApplicabilityResultCode = request.ApplicabilityResultCode?.Trim(), ResponseCode = result, GradeResultsJson = gradeJson, InspectionComment = request.InspectionComment?.Trim() ?? prior?.InspectionComment, TechnicalConditionCode = request.TechnicalConditionCode?.Trim(), Observation = request.Observation?.Trim(), NumericValue = request.NumericValue, MeasurementUnitSnapshot = request.NumericValue.HasValue ? definition.MeasurementUnit : null, RecordedAt = clock.GetUtcNow(), RecordedByUserId = actor.Id };
         InspectionActivityRules.ValidateCheckpointRevision(response);
         activity.UpdatedAt = clock.GetUtcNow();
+        activity.LastModifiedByUserId = actor.Id;
         db.CheckpointResponseRevisions.Add(response);
         if (response.ResponseCode == "Fail")
             await FailedCheckpointDefects.EnsureAsync(db, activity, definition, response, actor.Id, ct);
@@ -252,7 +255,7 @@ public sealed class InspectionActivityApplicationService(
     {
         EnsureEnabled(); InspectionActivityContractValidation.Validate(request);
         var actor = await authorizer.RequireActorAsync(ActorId, ct, UserRole.Surveyor, UserRole.Admin, UserRole.Manager);
-        var (activity, task) = await authorizer.EnsureActivityScopeAsync(activityId, ct); EnsureTaskWriter(task, actor); EnsureEditable(activity);
+        var (activity, task) = await authorizer.EnsureActivityScopeAsync(activityId, ct); await EnsureTaskWriter(task, actor, ct); EnsureEditable(activity);
         var checkpoint = await db.CheckpointResponseRevisions.SingleOrDefaultAsync(x => x.Id == request.CheckpointResponseRevisionId, ct)
             ?? throw new ArgumentException("Checkpoint response was not found.");
         var revisionBelongs = await db.InspectionActivityRevisions.AnyAsync(x => x.Id == checkpoint.ActivityRevisionId && x.InspectionActivityId == activityId, ct);
@@ -271,7 +274,8 @@ public sealed class InspectionActivityApplicationService(
             if (existing is not null) return new(existing.Id, activity.Id, existing.CheckpointResponseRevisionId, existing.StatusCode);
         }
         var finding = new ActivityFinding { InspectionActivityId = activityId, CheckpointResponseRevisionId = checkpoint.Id, Observation = request.Observation.Trim(), ProposedAction = request.ProposedAction?.Trim(), SeverityCode = request.SeverityCode?.Trim(), FaultCode = request.FaultCode?.Trim(), RequiredMaterialsOrSupport = request.RequiredMaterialsOrSupport?.Trim(), ResponsibleUserId = request.ResponsibleUserId, ResponsibleParty = request.ResponsibleParty?.Trim(), ReportedAt = clock.GetUtcNow(), ReportedByUserId = actor.Id, DueAt = request.DueAt };
-        db.ActivityFindings.Add(finding); activity.UpdatedAt = clock.GetUtcNow(); await db.SaveChangesAsync(ct);
+        db.ActivityFindings.Add(finding); activity.UpdatedAt = clock.GetUtcNow();
+        activity.LastModifiedByUserId = actor.Id; await db.SaveChangesAsync(ct);
         return new(finding.Id, activity.Id, checkpoint.Id, finding.StatusCode);
     }
 
@@ -279,14 +283,20 @@ public sealed class InspectionActivityApplicationService(
     {
         EnsureEnabled();
         var actor = await authorizer.RequireActorAsync(ActorId, ct, UserRole.Surveyor, UserRole.Qc, UserRole.Manager, UserRole.Admin);
-        var (_, task) = await authorizer.EnsureActivityScopeAsync(activityId, ct);
-        EnsureTaskWriter(task, actor);
+        var (activity, task) = await authorizer.EnsureActivityScopeAsync(activityId, ct);
+        await EnsureTaskWriter(task, actor, ct);
         var taskOwnership = await ownershipResolver.ResolveTaskAsync(task.Id, ct);
         await authorizer.EnsureActivityFileAccessAsync(request.SurveyFileId, actor.Id, taskOwnership, ct);
         var evidenceTargets = (request.CheckpointResponseRevisionId.HasValue ? 1 : 0) + (request.CorrectiveActionId.HasValue ? 1 : 0) + (request.CorrectiveActionEventId.HasValue ? 1 : 0);
         if (evidenceTargets != 1) throw new ArgumentException("Evidence must reference exactly one checkpoint response, corrective action, or action event.");
         if (request.CheckpointResponseRevisionId is Guid responseId && !await (from response in db.CheckpointResponseRevisions join revision in db.InspectionActivityRevisions on response.ActivityRevisionId equals revision.Id where response.Id == responseId && revision.InspectionActivityId == activityId select response.Id).AnyAsync(ct))
             throw new UnauthorizedAccessException("Checkpoint evidence target belongs to another activity.");
+        if (request.CheckpointResponseRevisionId.HasValue)
+        {
+            EnsureEditable(activity);
+            activity.UpdatedAt = clock.GetUtcNow();
+            activity.LastModifiedByUserId = actor.Id;
+        }
         CorrectiveActionEvent? generatedActionEvent = null;
         if (request.CorrectiveActionId is Guid actionId)
         {
@@ -306,7 +316,7 @@ public sealed class InspectionActivityApplicationService(
         EnsureEnabled(); InspectionActivityContractValidation.Validate(request);
         var actor = await authorizer.RequireActorAsync(ActorId, ct, UserRole.Surveyor, UserRole.Admin, UserRole.Manager);
         var finding = await db.ActivityFindings.SingleOrDefaultAsync(x => x.Id == request.ActivityFindingId, ct) ?? throw new KeyNotFoundException("Finding was not found.");
-        var (_, task) = await authorizer.EnsureActivityScopeAsync(finding.InspectionActivityId, ct); EnsureTaskWriter(task, actor);
+        var (_, task) = await authorizer.EnsureActivityScopeAsync(finding.InspectionActivityId, ct); await EnsureTaskWriter(task, actor, ct);
         if (await db.CorrectiveActions.AnyAsync(x => x.ActionReference == request.ActionReference.Trim(), ct)) throw new ArgumentException("Action reference already exists.");
         if (request.ResponsibleUserId is Guid responsible && !await db.Users.AnyAsync(x => x.Id == responsible && x.IsActive && x.ApprovalStatus == ApprovalStatus.Approved, ct)) throw new ArgumentException("Responsible user is inactive or unapproved.");
         var action = new CorrectiveAction { ActivityFindingId = finding.Id, ActionReference = request.ActionReference.Trim(), SupplementaryInformation = request.SupplementaryInformation?.Trim(), ProposedAction = request.ProposedAction?.Trim(), ExternalWorkOrderReference = request.ExternalWorkOrderReference?.Trim(), ResponsibleUserId = request.ResponsibleUserId ?? finding.ResponsibleUserId, ResponsibleParty = request.ResponsibleParty?.Trim() ?? finding.ResponsibleParty };
@@ -319,7 +329,7 @@ public sealed class InspectionActivityApplicationService(
         EnsureEnabled(); InspectionActivityContractValidation.Validate(request);
         var actor = await authorizer.RequireActorAsync(ActorId, ct, UserRole.Surveyor, UserRole.Manager, UserRole.Admin);
         var (action, _, _, task) = await authorizer.EnsureActionScopeAsync(actionId, ct);
-        EnsureTaskWriter(task, actor);
+        await EnsureTaskWriter(task, actor, ct);
         if (action.Status is CorrectiveActionStatus.ClientClosed or CorrectiveActionStatus.SubmittedForVerification or CorrectiveActionStatus.Verified) throw new InvalidOperationException("This corrective action cannot be changed in its current state.");
         if (actor.Role == UserRole.Surveyor && action.ResponsibleUserId != actor.Id && task.AssignedUserId != actor.Id) throw new UnauthorizedAccessException("Surveyor is not responsible for this corrective action.");
         action.RectificationDescription = request.Description.Trim();
@@ -338,25 +348,13 @@ public sealed class InspectionActivityApplicationService(
     public async Task<InspectionActivityResponse> SubmitForReviewAsync(Guid activityId, CancellationToken ct = default)
     {
         EnsureEnabled(); var actor = await authorizer.RequireActorAsync(ActorId, ct, UserRole.Surveyor, UserRole.Admin, UserRole.Manager);
-        var (activity, task) = await authorizer.EnsureActivityScopeAsync(activityId, ct); EnsureTaskWriter(task, actor); EnsureEditable(activity);
-        var definitions = await db.CheckpointDefinitionSnapshots.Where(x => x.ChecklistVersionSnapshotId == activity.ChecklistVersionId && x.IsRequired)
-            .Select(x => new { x.Id, x.ApplicabilityCode }).ToListAsync(ct);
-        var latestRevision = await db.InspectionActivityRevisions.Where(x => x.InspectionActivityId == activityId).OrderByDescending(x => x.RevisionNumber).Select(x => x.Id).FirstAsync(ct);
-        var responses = await db.CheckpointResponseRevisions.Where(x => x.ActivityRevisionId == latestRevision)
-            .Select(x => new { x.CheckpointDefinitionSnapshotId, x.RevisionNumber, x.ResponseCode }).ToListAsync(ct);
-        var answered = responses.Select(x => x.CheckpointDefinitionSnapshotId).ToHashSet();
-        if (activity.Grade is null)
-        {
-            var selected = definitions.Where(x => answered.Contains(x.Id)).Select(x => x.ApplicabilityCode).ToHashSet();
-            if (selected.Count == 0) throw new InvalidOperationException("Complete at least one checkpoint category before submission.");
-            definitions = definitions.Where(x => selected.Contains(x.ApplicabilityCode)).ToList();
-            answered = responses.GroupBy(x => x.CheckpointDefinitionSnapshotId)
-                .Where(group => group.OrderByDescending(x => x.RevisionNumber).First().ResponseCode is "Pass" or "Fail" or "NA")
-                .Select(group => group.Key).ToHashSet();
-        }
-        if (definitions.Select(x => x.Id).Except(answered).Any()) throw new InvalidOperationException("All required checkpoints need a response before submission.");
+        var (activity, task) = await authorizer.EnsureActivityScopeAsync(activityId, ct); await EnsureTaskWriter(task, actor, ct); EnsureEditable(activity);
+        if (activity.IsOnHold) throw new InvalidOperationException("Resume the inspection before submitting it for review.");
+        // Missing checkpoint responses are the existing Blank state (null). Submission
+        // must not require Surveyors to create a response row for every checkpoint.
         activity.CompletedAt ??= clock.GetUtcNow();
         activity.ReviewStatus = InspectionActivityReviewStatus.Submitted; activity.UpdatedAt = clock.GetUtcNow();
+        activity.LastModifiedByUserId = actor.Id;
         db.ActivityReviewEvents.Add(new ActivityReviewEvent { InspectionActivityId = activity.Id, Decision = activity.ReviewStatus, ActorUserId = actor.Id, Comments = "Submitted for review", DecidedAt = clock.GetUtcNow() });
         await db.SaveChangesAsync(ct); return Map(activity);
     }
@@ -371,7 +369,48 @@ public sealed class InspectionActivityApplicationService(
         var ev = InspectionActivityRules.RecordDecision(activity, request.Decision, actor.Id, request.Comments?.Trim(), clock.GetUtcNow());
         if (task.WorkPackageId.HasValue && request.Decision == InspectionActivityReviewStatus.Accepted) task.StatusCode = "Completed";
         else if (task.WorkPackageId.HasValue && request.Decision == InspectionActivityReviewStatus.ChangesRequested) task.StatusCode = "InProgress";
-        activity.UpdatedAt = clock.GetUtcNow(); db.ActivityReviewEvents.Add(ev); await db.SaveChangesAsync(ct);
+        activity.UpdatedAt = clock.GetUtcNow();
+        activity.LastModifiedByUserId = actor.Id;
+        db.ActivityReviewEvents.Add(ev);
+
+        var noticeContext = await (from inspectionTask in db.InspectionTasks.AsNoTracking()
+                                   join plan in db.InspectionPlans.AsNoTracking() on inspectionTask.InspectionPlanId equals plan.Id
+                                   join project in db.Projects.AsNoTracking() on plan.ProjectId equals project.Id
+                                   join equipment in db.AreaEquipment.AsNoTracking() on inspectionTask.AreaEquipmentId equals equipment.Id
+                                   join area in db.ProjectAreas.AsNoTracking() on equipment.AreaId equals area.Id
+                                   join inspector in db.Users.AsNoTracking() on activity.InspectorUserId equals inspector.Id
+                                   where inspectionTask.Id == task.Id
+                                   select new {ProjectId = project.Id, project.ProjectName, AreaId = area.Id, area.AreaName, EquipmentId = equipment.Id,
+                                       equipment.TagNumber, InspectorId = inspector.Id, inspector.Email, inspector.DisplayName, inspector.Role}).SingleOrDefaultAsync(ct);
+        AccountMail? reviewMail = null;
+        if (noticeContext is not null && noticeContext.Role == UserRole.Surveyor)
+        {
+            var decisionLabel = request.Decision switch
+            {
+                InspectionActivityReviewStatus.Accepted => "QC approved",
+                InspectionActivityReviewStatus.ChangesRequested => "Changes requested",
+                _ => "QC review started"
+            };
+            var comment = string.IsNullOrWhiteSpace(request.Comments) ? "No reviewer comment was provided." : request.Comments.Trim();
+            var message = $"{noticeContext.ProjectName} / {noticeContext.AreaName} / {noticeContext.TagNumber}: {decisionLabel}. Reviewer: {actor.DisplayName}. {comment}";
+            db.UserAccessNotifications.Add(new UserAccessNotification
+            {
+                RecipientId = noticeContext.InspectorId,
+                EventKey = $"inspection-review:{ev.Id:D}",
+                Kind = "InspectionReview",
+                Title = decisionLabel,
+                Message = message,
+                ProjectId = noticeContext.ProjectId,
+                AreaId = noticeContext.AreaId,
+                EquipmentId = noticeContext.EquipmentId,
+                InspectionActivityId = activity.Id,
+                CreatedAt = clock.GetUtcNow()
+            });
+            reviewMail = new AccountMail(noticeContext.Email, noticeContext.DisplayName,
+                $"Ex-Survey inspection: {decisionLabel}", message + "\n\nOpen Ex-Survey to view the inspection and full review history.");
+        }
+        await db.SaveChangesAsync(ct);
+        if (reviewMail is not null) mailQueue?.TryEnqueue(reviewMail);
         return Map(activity);
     }
 
@@ -379,14 +418,52 @@ public sealed class InspectionActivityApplicationService(
     {
         EnsureEnabled();
         var actor = await authorizer.RequireActorAsync(ActorId, ct, UserRole.Qc, UserRole.Manager, UserRole.Admin);
-        var (activity, _) = await authorizer.EnsureActivityScopeAsync(activityId, ct);
+        var (activity, task) = await authorizer.EnsureActivityScopeAsync(activityId, ct);
         if (activity.ReviewStatus is not (InspectionActivityReviewStatus.Submitted or InspectionActivityReviewStatus.InReview)) throw new InvalidOperationException("Checkpoint review requires an activity awaiting QC review.");
         if (!Enum.IsDefined(request.Decision)) throw new ArgumentException("Checkpoint review decision is invalid.");
         if (request.Decision == CheckpointReviewDecision.ChangesRequested && string.IsNullOrWhiteSpace(request.Comments)) throw new ArgumentException("A reason is required when returning a checkpoint.");
         var responseBelongs = await (from response in db.CheckpointResponseRevisions join revision in db.InspectionActivityRevisions on response.ActivityRevisionId equals revision.Id where response.Id == request.CheckpointResponseRevisionId && revision.InspectionActivityId == activityId select response.Id).AnyAsync(ct);
         if (!responseBelongs) throw new UnauthorizedAccessException("Checkpoint response belongs to another activity.");
         var review = new CheckpointReviewEvent { InspectionActivityId = activityId, CheckpointResponseRevisionId = request.CheckpointResponseRevisionId, ReviewerUserId = actor.Id, Decision = request.Decision, Comments = request.Comments?.Trim(), ReviewedAt = clock.GetUtcNow() };
-        db.CheckpointReviewEvents.Add(review); await db.SaveChangesAsync(ct); return review;
+        db.CheckpointReviewEvents.Add(review);
+        AccountMail? reviewMail = null;
+        if (!string.IsNullOrWhiteSpace(request.Comments))
+        {
+            var context = await (from inspectionTask in db.InspectionTasks.AsNoTracking()
+                                 join plan in db.InspectionPlans.AsNoTracking() on inspectionTask.InspectionPlanId equals plan.Id
+                                 join project in db.Projects.AsNoTracking() on plan.ProjectId equals project.Id
+                                 join equipment in db.AreaEquipment.AsNoTracking() on inspectionTask.AreaEquipmentId equals equipment.Id
+                                 join area in db.ProjectAreas.AsNoTracking() on equipment.AreaId equals area.Id
+                                 join inspector in db.Users.AsNoTracking() on activity.InspectorUserId equals inspector.Id
+                                 where inspectionTask.Id == task.Id
+                                 select new {ProjectId = project.Id, project.ProjectName, AreaId = area.Id, area.AreaName,
+                                     EquipmentId = equipment.Id, equipment.TagNumber, SurveyorId = inspector.Id, inspector.Email,
+                                     inspector.DisplayName, inspector.Role}).SingleOrDefaultAsync(ct);
+            if (context is not null && context.Role == UserRole.Surveyor)
+            {
+                var title = request.Decision == CheckpointReviewDecision.ChangesRequested
+                    ? "Checkpoint changes requested" : "New inspection review comment";
+                var message = $"{context.ProjectName} / {context.AreaName} / {context.TagNumber}: {title}. Reviewer: {actor.DisplayName}. {request.Comments.Trim()}";
+                db.UserAccessNotifications.Add(new UserAccessNotification
+                {
+                    RecipientId = context.SurveyorId,
+                    EventKey = $"checkpoint-review:{review.Id:D}",
+                    Kind = "InspectionReview",
+                    Title = title,
+                    Message = message,
+                    ProjectId = context.ProjectId,
+                    AreaId = context.AreaId,
+                    EquipmentId = context.EquipmentId,
+                    InspectionActivityId = activity.Id,
+                    CreatedAt = review.ReviewedAt
+                });
+                reviewMail = new AccountMail(context.Email, context.DisplayName,
+                    $"Ex-Survey inspection: {title}", message + "\n\nOpen Ex-Survey to view the inspection and full review history.");
+            }
+        }
+        await db.SaveChangesAsync(ct);
+        if (reviewMail is not null) mailQueue?.TryEnqueue(reviewMail);
+        return review;
     }
 
     public async Task<CorrectiveActionResponse> VerifyCorrectiveActionAsync(Guid actionId, CorrectiveActionVerificationRequest request, CancellationToken ct = default)
@@ -423,7 +500,7 @@ public sealed class InspectionActivityApplicationService(
         EnsureEnabled(); var actor = await authorizer.RequireActorAsync(ActorId, ct, UserRole.Client);
         var (action, _, _, task) = await authorizer.EnsureActionScopeAsync(actionId, ct);
         var owner = await ownershipResolver.ResolveTaskAsync(task.Id, ct);
-        if (!owner.IsResolved || owner.ProjectId is not Guid projectId || !await db.Projects.AnyAsync(x => x.Id == projectId && x.AssignedClientId == actor.Id, ct))
+        if (!owner.IsResolved || owner.ProjectId is not Guid projectId || !await db.Projects.AnyAsync(x => x.Id == projectId && (x.AssignedClientId == actor.Id || x.ClientAssignments.Any(a => a.IsActive && a.ClientUserId == actor.Id)), ct))
             throw new UnauthorizedAccessException("Only the client assigned to the equipment's owning project may decide closure.");
         CorrectiveActionStatus next;
         CorrectiveActionEventKind eventKind;
@@ -457,9 +534,14 @@ public sealed class InspectionActivityApplicationService(
         throw new ArgumentException("Exactly one equipment ID is required.");
     }
 
-    private static void EnsureTaskWriter(InspectionTask task, User actor)
+    private async Task EnsureTaskWriter(InspectionTask task, User actor, CancellationToken ct)
     {
-        if (actor.Role == UserRole.Surveyor && task.AssignedUserId != actor.Id) throw new UnauthorizedAccessException("Surveyor is not assigned to this inspection task.");
+        if (actor.Role != UserRole.Surveyor) return;
+        var projectId = await db.InspectionPlans.Where(x => x.Id == task.InspectionPlanId).Select(x => x.ProjectId).SingleAsync(ct);
+        if (projectId.HasValue && await db.Projects.AnyAsync(x => x.Id == projectId &&
+            (x.AssignedSurveyorId == actor.Id || x.AdditionalSurveyorId == actor.Id), ct)) return;
+        if (!projectId.HasValue && task.AssignedUserId == actor.Id) return;
+        throw new UnauthorizedAccessException("Surveyor is not assigned to this project.");
     }
     private static void EnsureEditable(InspectionActivity activity)
     {

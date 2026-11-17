@@ -56,12 +56,14 @@ public sealed class InspectionActivity
     public Guid InspectorUserId { get; set; }
     public string? InspectorNameSnapshot { get; set; }
     public string? EquipmentComments { get; set; }
+    public bool IsOnHold { get; set; }
     public DateTimeOffset StartedAt { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }
     public Guid ChecklistVersionId { get; set; }
     public InspectionActivityReviewStatus ReviewStatus { get; set; } = InspectionActivityReviewStatus.Draft;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public Guid? LastModifiedByUserId { get; set; }
     public byte[] RowVersion { get; set; } = [];
     public ICollection<InspectionActivityRevision> Revisions { get; set; } = new List<InspectionActivityRevision>();
 }

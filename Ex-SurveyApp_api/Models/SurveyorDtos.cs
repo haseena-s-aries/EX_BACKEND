@@ -35,7 +35,7 @@ public record SurveyorProjectSummaryResponse(
     string VesselOrSiteName,
     DateTimeOffset CreatedDate,
     ProjectStatus Status,
-    int AreaCount);
+    int AreaCount, bool IsTransferred = false, string ReportStatus = "Ongoing", ProjectScheduleSummary? Schedule = null);
 
 public record SurveyorProjectDetailsResponse(
     Guid ProjectId,
@@ -49,7 +49,7 @@ public record SurveyorProjectDetailsResponse(
     string AssignedSurveyor,
     string AssignedQc,
     string AssignedClient,
-    IReadOnlyCollection<SurveyorAreaSummaryResponse> Areas);
+    IReadOnlyCollection<SurveyorAreaSummaryResponse> Areas, DateOnly? TargetDate = null, string ReportStatus = "Ongoing");
 
 public record SurveyorAreaSummaryResponse(
     Guid AreaId,
@@ -89,7 +89,8 @@ public record UpsertAreaEquipmentRequest(
     [StringLength(250)] string? NotifiedBody = null,
     [StringLength(1000)] string? SpecialConditionsOfUse = null,
     [StringLength(50)] string? RfidIdentificationMethod = null,
-    Guid? ClientEquipmentId = null);
+    Guid? ClientEquipmentId = null,
+    [StringLength(80)] string? LayoutImageKey = null);
 
 public record RecordEquipmentScanEventRequest(
     Guid ClientEventId,
@@ -137,7 +138,9 @@ public record AreaEquipmentResponse(
     string? NotifiedBody = null,
     string? SpecialConditionsOfUse = null,
     string? RfidIdentificationMethod = null,
-    string RegistrationStatus = "Verified");
+    string RegistrationStatus = "Verified",
+    string? LayoutImageKey = null,
+    int? MarkingNo = null);
 
 public record ReviewEquipmentRegistrationRequest(
     [Required] string Decision,
@@ -165,7 +168,8 @@ public record SurveyorEquipmentDetailsResponse(
     EquipmentInspectionStatus InspectionStatus,
     bool InspectionEditable,
     string? QcComments,
-    QcSeverity? QcSeverity);
+    QcSeverity? QcSeverity,
+    int? MarkingNo = null);
 
 public record SurveyorChecklistItemResponse(
     Guid ChecklistItemId,
@@ -187,7 +191,7 @@ public record SaveEquipmentInspectionRequest(
     [Required, StringLength(200, MinimumLength = 1)] string InspectorName,
     [StringLength(2000)] string? Comments,
     IReadOnlyCollection<SaveInspectionAnswerRequest> Answers,
-    bool IsCompleted = true);
+    bool IsCompleted = true, DateTimeOffset? ExpectedUpdatedAt = null);
 
 public record SurveyorInspectionAnswerResponse(
     Guid ChecklistItemId,

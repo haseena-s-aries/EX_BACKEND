@@ -14,7 +14,7 @@ namespace Ex_SurveyApp_api.Controllers;
 [Authorize(Roles = "Admin,Manager,Qc,Surveyor,Client")]
 [EndpointScopeInventory(EndpointScopeKind.TenantResource)]
 [Route("api/reports")]
-public sealed class OperationalReportsController(SurveyDbContext db, IProjectPhotoStorage storage, IGeneratedReportArtifactStorage artifactStorage, ILogger<OperationalReportsController> logger) : ControllerBase
+public sealed partial class OperationalReportsController(SurveyDbContext db, IProjectPhotoStorage storage, IGeneratedReportArtifactStorage artifactStorage, ILogger<OperationalReportsController> logger) : ControllerBase
 {
     private ProjectReportData Data => new(db);
     private Guid Actor => Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var id) ? id : Guid.Empty;
@@ -148,7 +148,7 @@ public sealed class OperationalReportsController(SurveyDbContext db, IProjectPho
     {
         if(!await Data.AccessibleProjects(User).AnyAsync(x=>x.Id==projectId,ct)) return NotFound();
         var artifacts=await db.GeneratedReportArtifacts.AsNoTracking().Where(x=>x.ProjectId==projectId).OrderByDescending(x=>x.GeneratedAt).Take(100)
-            .Select(x=>new{x.Id,x.ReportType,x.ReportNumber,x.Revision,x.FileName,x.ContentType,x.Sha256,x.GeneratedAt,x.GeneratedByUserId,x.ApprovalState,DownloadUrl=$"/api/reports/projects/{projectId:D}/artifacts/{x.Id:D}"}).ToListAsync(ct);
+            .Select(x=>new{x.Id,x.ReportType,x.ReportNumber,x.Revision,x.UidNumber,x.DocumentNumber,x.DocumentRevision,x.FileName,x.ContentType,x.Sha256,x.GeneratedAt,x.GeneratedByUserId,x.ApprovalState,DownloadUrl=$"/api/reports/projects/{projectId:D}/artifacts/{x.Id:D}"}).ToListAsync(ct);
         var events=await db.AuditLogs.AsNoTracking().Where(x=>x.EntityId==projectId&&x.EntityType=="Project"&&(x.Action.Contains("Report")||x.Action.Contains("Handover")||x.Action.Contains("Inspection Test Record")))
             .OrderByDescending(x=>x.OccurredAt).Select(x=>new{x.Id,x.Action,x.Comments,x.ActorId,x.OccurredAt}).Take(100).ToListAsync(ct);
         return Ok(new{Artifacts=artifacts,Events=events});

@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
+using System.Data;
 using Ex_SurveyApp_api.Attributes;
 using System.Security.Cryptography;
 using System.Text;
@@ -175,11 +176,13 @@ public class AuthController(
             DisplayName = registration.DisplayName,
             PasswordHash = string.Empty,
             Role = registration.RequestedRole,
-            ApprovalStatus = ApprovalStatus.Pending
+            ApprovalStatus = ApprovalStatus.Pending,
+            RegisteredAt = DateTimeOffset.UtcNow
         };
         user.PasswordHash = passwordHasher.HashPassword(user, request.Password);
         db.Users.Add(user);
         db.RegistrationOtps.Remove(registration);
+        await new UserAccessWorkflow(db).Registration(user, cancellationToken);
 
         try
         {
@@ -193,6 +196,7 @@ public class AuthController(
         return StatusCode(StatusCodes.Status201Created, new
         {
             message = "Registration completed and is pending Admin or Manager approval.",
+            accountStatus = "PendingApproval",
             user = ToResponse(user)
         });
     }
@@ -216,7 +220,7 @@ public class AuthController(
 
         if (user.ApprovalStatus == ApprovalStatus.Pending)
             return StatusCode(StatusCodes.Status403Forbidden,
-                new { error = "Account is pending Admin or Manager approval.", approvalStatus = user.ApprovalStatus });
+                new { error = "Your account is awaiting administrator approval.", approvalStatus = user.ApprovalStatus });
         if (user.ApprovalStatus == ApprovalStatus.Rejected)
             return StatusCode(StatusCodes.Status403Forbidden,
                 new { error = "Account registration was rejected.", approvalStatus = user.ApprovalStatus });
@@ -306,6 +310,7 @@ public class AuthController(
         if (request.Role is null || !Enum.IsDefined(request.Role.Value))
             return BadRequest(new { error = "Role must be Admin, Manager, Qc, Surveyor, or Client." });
 
+        await using var roleTransaction = db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken) : null;
         var user = await db.Users.FirstOrDefaultAsync(x => x.Id == userId && x.IsActive, cancellationToken);
         if (user is null)
             return NotFound(new { error = "Active user was not found." });
@@ -320,12 +325,11 @@ public class AuthController(
             });
         }
 
-        if (user.Role == UserRole.Manager && request.Role != UserRole.Manager &&
-            await db.Users.AnyAsync(x => x.ManagerId == userId, cancellationToken))
-            return Conflict(new { error = "Reassign reporting QC users before changing this Manager's role." });
-        user.Role = request.Role.Value;
-        if (user.Role != UserRole.Qc) user.ManagerId = null;
-        await db.SaveChangesAsync(cancellationToken);
+        var flow = new UserAccessWorkflow(db);
+        var problem = await flow.RoleProblem(user, request.Role.Value, cancellationToken);
+        if (problem is not null) return Conflict(new {error = problem});
+        flow.ApplyRole(user, request.Role.Value, Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!));
+        try {await db.SaveChangesAsync(cancellationToken); if (roleTransaction is not null) await roleTransaction.CommitAsync(cancellationToken);} catch (DbUpdateConcurrencyException) {return Conflict(new {error = "The account changed. Refresh and try again."});}
         return Ok(ToManagedResponse(user));
     }
 
@@ -421,10 +425,9 @@ public class AuthController(
     public async Task<ActionResult<IEnumerable<PendingApprovalResponse>>> GetPendingApprovals(
         CancellationToken cancellationToken)
     {
-        var users = await db.Users.AsNoTracking()
-           .Where(x => x.IsActive && x.ApprovalStatus == ApprovalStatus.Pending)
+        var users = await UserAccessWorkflow.Pending(db, User.IsInRole("Admin")).AsNoTracking()
             .OrderBy(x => x.DisplayName)
-            .Select(x => new PendingApprovalResponse(x.Id, x.Email, x.DisplayName, x.Role, x.ApprovalStatus))
+            .Select(x => new PendingApprovalResponse(x.Id, x.Email, x.DisplayName, x.Role, x.ApprovalStatus, x.RegisteredAt))
             .ToListAsync(cancellationToken);
         return Ok(users);
     }
@@ -432,19 +435,22 @@ public class AuthController(
     [HttpPut("approvals/{userId:guid}/approve")]
     [Authorize(Roles = "Admin,Manager")]
     public Task<ActionResult<UserResponse>> ApproveUser(Guid userId, CancellationToken cancellationToken) =>
-        ReviewApproval(userId, ApprovalStatus.Approved, cancellationToken);
+        ReviewApproval(userId, ApprovalStatus.Approved, null, cancellationToken);
 
     [HttpPut("approvals/{userId:guid}/reject")]
     [Authorize(Roles = "Admin,Manager")]
-    public Task<ActionResult<UserResponse>> RejectUser(Guid userId, CancellationToken cancellationToken) =>
-        ReviewApproval(userId, ApprovalStatus.Rejected, cancellationToken);
+    public Task<ActionResult<UserResponse>> RejectUser(Guid userId, RejectRegistrationRequest request, CancellationToken cancellationToken) =>
+        ReviewApproval(userId, ApprovalStatus.Rejected, request.Reason, cancellationToken);
 
     private async Task<ActionResult<UserResponse>> ReviewApproval(
-        Guid userId, ApprovalStatus decision, CancellationToken cancellationToken)
+        Guid userId, ApprovalStatus decision, string? reason, CancellationToken cancellationToken)
     {
+        if (decision == ApprovalStatus.Rejected && string.IsNullOrWhiteSpace(reason)) return BadRequest(new {error = "A rejection reason is required."});
         var user = await db.Users.FirstOrDefaultAsync(x => x.Id == userId, cancellationToken);
         if (user is null)
             return NotFound(new { error = "User was not found." });
+        if (!Enum.IsDefined(user.Role)) return Conflict(new {error = "The requested role is invalid. Review this account before approval."});
+        if (decision == ApprovalStatus.Approved && !user.IsActive) return Conflict(new {error = "A disabled account cannot be activated through registration approval."});
         if (user.ApprovalStatus != ApprovalStatus.Pending)
             return Conflict(new { error = $"User approval has already been {user.ApprovalStatus.ToString().ToLowerInvariant()}." });
 
@@ -458,7 +464,16 @@ public class AuthController(
         user.ApprovalStatus = decision;
         user.ApprovalReviewedByUserId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
         user.ApprovalReviewedAt = DateTimeOffset.UtcNow;
-        await db.SaveChangesAsync(cancellationToken);
+        user.ApprovalRejectionReason = decision == ApprovalStatus.Rejected ? reason!.Trim() : null;
+        user.AuthVersion++;
+        var flow = new UserAccessWorkflow(db);
+        flow.Audit(user.Id, user.ApprovalReviewedByUserId, "Registration " + decision, user.ApprovalRejectionReason);
+        flow.Add(user.Id, "registration-decision:" + user.Id, "Decision", "Registration " + decision,
+            decision == ApprovalStatus.Approved ? "Your account has been approved. You can now sign in." : "Your registration was rejected. Contact your administrator for assistance.");
+        try {await db.SaveChangesAsync(cancellationToken);} catch (DbUpdateConcurrencyException) {return Conflict(new {error = "This registration has already been reviewed. Refresh the list."});}
+        try {await emailService.SendAccountMessageAsync(user.Email, user.DisplayName, "Ex-Survey registration " + decision,
+            decision == ApprovalStatus.Approved ? "Your account has been approved. You can now sign in to Ex-Survey." : "Your account registration was rejected. Contact your administrator for assistance.", cancellationToken);}
+        catch (Exception ex) when (ex is not OperationCanceledException) {logger.LogWarning("Registration decision email delivery failed. Decision remains saved.");}
         return Ok(ToResponse(user));
     }
     //SaveChangesEventArgs success
@@ -552,7 +567,7 @@ public class AuthController(
     private async Task<IReadOnlyList<ManagedUserResponse>> GetManagedUsers(
         ApprovalStatus status, CancellationToken cancellationToken) =>
         await db.Users.AsNoTracking()
-            .Where(x => x.IsActive && x.ApprovalStatus == status)
+            .Where(x => x.IsActive && x.ApprovalStatus == status && (User.IsInRole("Admin") || (x.Role != UserRole.Admin && x.Role != UserRole.Manager)))
             .OrderBy(x => x.DisplayName)
             .ThenBy(x => x.Email)
             .Select(x => new ManagedUserResponse(
@@ -563,6 +578,7 @@ public class AuthController(
         Guid userId, CancellationToken cancellationToken)
     {
         var dependencies = new List<string>();
+        if (await db.RoleChangeRequests.AnyAsync(r => r.UserId == userId || r.ReviewedBy == userId, cancellationToken)) dependencies.Add("role change request history");
 
         if (await db.Users.AsNoTracking().AnyAsync(x => x.ManagerId == userId, cancellationToken))
             dependencies.Add("QC users reporting to this Manager");
@@ -571,8 +587,8 @@ public class AuthController(
                 x => x.ApprovalReviewedByUserId == userId, cancellationToken))
             dependencies.Add("approval reviews performed by the user");
         if (await db.Projects.AsNoTracking().AnyAsync(
-                x => x.AssignedSurveyorId == userId || x.AssignedQcId == userId ||
-                     x.AssignedClientId == userId, cancellationToken))
+                x => (x.AssignedSurveyorId == userId || x.AdditionalSurveyorId == userId) || x.AssignedQcId == userId || x.AdditionalQcId == userId ||
+                     (x.AssignedClientId == userId || x.ClientAssignments.Any(a => a.ClientUserId == userId)), cancellationToken))
             dependencies.Add("project assignments");
         if (await db.Projects.AsNoTracking().AnyAsync(
                 x => x.CreatedByUserId == userId, cancellationToken))
@@ -616,7 +632,8 @@ public class AuthController(
     private static string NormalizeEmail(string email) => email.Trim().ToLowerInvariant();
 
     private static UserResponse ToResponse(User user) =>
-        new(user.Id, user.Email, user.DisplayName, user.Role, user.ApprovalStatus);
+        new(user.Id, user.Email, user.DisplayName, user.Role, user.ApprovalStatus,
+            AccountController.PhotoUrl(user));
 
     private static ManagedUserResponse ToManagedResponse(User user) =>
         new(user.Id, user.DisplayName, user.Email, user.Role, user.ApprovalStatus);

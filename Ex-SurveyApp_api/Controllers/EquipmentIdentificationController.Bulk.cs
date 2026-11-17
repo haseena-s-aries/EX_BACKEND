@@ -59,7 +59,7 @@ public sealed partial class EquipmentIdentificationController
         }) });
     }
 
-    [Authorize(Roles = "Admin,Manager,Surveyor")]
+    [Authorize(Roles = "Admin,Manager,Surveyor,Qc")]
     [HttpGet("registration-projects")]
     public async Task<IActionResult> RegistrationProjects(CancellationToken ct)
     {
@@ -134,7 +134,7 @@ public sealed partial class EquipmentIdentificationController
             var item = new AreaEquipment
             {
                 Id = row.ClientId, ProjectId = request.ProjectId, AreaId = request.AreaId,
-                SequenceNo = 1 + (await db.AreaEquipment.Where(x => x.AreaId == request.AreaId).MaxAsync(x => (int?)x.SequenceNo, ct) ?? 0),
+                SequenceNo = 0, // Allocated project-wide by the shared save pipeline.
                 TagNumber = row.TagNumber!.Trim(), EquipmentCode = Clean(row.EquipmentCode),
                 EquipmentName = Clean(row.EquipmentName), Description = Clean(row.Description), Type = row.Type!.Trim(),
                 IsPlacedOnLayout = false, CreatedByUserId = Actor, RegistrationStatus = "Submitted",

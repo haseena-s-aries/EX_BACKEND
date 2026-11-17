@@ -36,14 +36,16 @@ public record UserResponse(
     string Email,
     string DisplayName,
     UserRole Role,
-    ApprovalStatus ApprovalStatus);
+    ApprovalStatus ApprovalStatus,
+    string? ProfilePhotoUrl = null);
 
 public record PendingApprovalResponse(
     Guid Id,
     string Email,
     string DisplayName,
     UserRole Role,
-    ApprovalStatus ApprovalStatus);
+    ApprovalStatus ApprovalStatus,
+    DateTimeOffset? RegisteredAt = null);
 
 public record ManagedUserResponse(
     Guid Id,
@@ -53,3 +55,5 @@ public record ManagedUserResponse(
     ApprovalStatus ApprovalStatus);
 
 public record AuthResponse(string AccessToken, DateTimeOffset ExpiresAt, UserResponse User);
+
+public record RejectRegistrationRequest([Required, StringLength(2000)] string Reason);

@@ -49,7 +49,7 @@ internal static class HazardousAreaPlanChecks
             var manager = User("Manager", UserRole.Manager); var qc = User("QC", UserRole.Qc); var surveyor = User("Surveyor", UserRole.Surveyor); var client = User("Client", UserRole.Client); var outsider = User("Outsider", UserRole.Client);
             db.Users.AddRange(manager, qc, surveyor, client, outsider); await db.SaveChangesAsync();
             var controller = As(new ProjectController(db, storage, NullLogger<ProjectController>.Instance), manager);
-            var request = new UpsertProjectRequest("Plan project", "Marine", "PLAN-1", "Dubai", "Site", surveyor.Id, qc.Id, client.Id);
+            var request = new UpsertProjectRequest("Plan project", "Marine", "PLAN-1", "Dubai", "Site", surveyor.Id, qc.Id, client.Id, ClientName: "Test Client Company", TargetDate: ProjectScheduling.Today.AddDays(30));
             var create = await controller.CreateProjectWithPlan(request, File("hazardous-area-plan.pdf", "application/pdf", pdf), default);
             var response = (ProjectResponse)((CreatedAtActionResult)create.Result!).Value!;
             var project = db.Projects.Single();

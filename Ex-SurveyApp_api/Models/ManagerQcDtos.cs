@@ -17,5 +17,7 @@ public record ManagerQcHistory(Guid Id, string Action, DateTimeOffset OccurredAt
     string? Comments, QcSeverity? Severity, QcReviewStatus? QcStatus,
     DateTimeOffset? ReviewStartedAt, DateTimeOffset? ReviewedAt);
 public record ManagerQcInspection(ManagerQcEquipment Equipment, QcEquipmentInspectionResponse? Inspection,
-    IReadOnlyCollection<ManagerQcHistory> History);
+    IReadOnlyCollection<ManagerQcHistory> History, string? InspectionType = null,
+    string? EquipmentName = null, string? Description = null, string? ItemNumber = null,
+    string? AreaName = null, string? RfidTagUid = null);
 public record SetReportingManagerRequest(Guid? ManagerId);

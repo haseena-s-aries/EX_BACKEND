@@ -31,7 +31,7 @@ public sealed partial class InspectionActivitiesController(SurveyDbContext db, I
                           join plan in db.InspectionPlans.AsNoTracking() on task.InspectionPlanId equals plan.Id
                           join activity in db.InspectionActivities.AsNoTracking() on task.Id equals activity.InspectionTaskId
                           where task.AreaEquipmentId == equipmentId && plan.ProjectId == projectId
-                                && (categoryOnly ? activity.Grade == null && activity.InspectorUserId == ActorId : activity.Grade != null)
+                                && (categoryOnly ? activity.Grade == null : activity.Grade != null)
                           orderby activity.StartedAt descending
                           select new { activity.Id, activity.Grade, activity.ReviewStatus, activity.StartedAt, activity.CompletedAt, activity.InspectorNameSnapshot, activity.ChecklistVersionId, activity.RowVersion })
             .ToListAsync(ct);
@@ -71,7 +71,7 @@ public sealed partial class InspectionActivitiesController(SurveyDbContext db, I
         var checkpointReviews = await db.CheckpointReviewEvents.AsNoTracking().Where(x => x.InspectionActivityId == activityId).OrderBy(x => x.ReviewedAt).Select(x => new { x.CheckpointResponseRevisionId, x.Decision, x.Comments, x.ReviewerUserId, x.ReviewedAt }).ToListAsync(ct);
         var referenceDocumentsUsed=options.Value.DocumentUsageEnabled?await db.InspectionActivityDocumentUsages.AsNoTracking().Where(x=>x.InspectionActivityId==activityId).OrderBy(x=>x.OpenedAt).Select(x=>new{x.DocumentIdentity,x.DocumentRevision,x.Sha256,x.Title,x.Scope,x.ScopeId,x.OpenedAt,x.RecordedAt}).ToListAsync(ct):[];
         var evidence = await (from item in db.ActivityEvidence.AsNoTracking() join file in db.Files.AsNoTracking() on item.SurveyFileId equals file.Id where item.InspectionActivityId == activityId orderby item.AddedAt select new { item.Id, item.CheckpointResponseRevisionId, CheckpointDefinitionSnapshotId = db.CheckpointResponseRevisions.Where(r => r.Id == item.CheckpointResponseRevisionId).Select(r => (Guid?)r.CheckpointDefinitionSnapshotId).FirstOrDefault(), item.Role, item.Caption, item.AddedByUserId, item.AddedAt, file.FileName, file.ContentType, Url = $"/api/v1/inspection-activities/{activityId:D}/photos/{item.Id:D}" }).ToListAsync(ct);
-        return Ok(new { activity.Id, activity.InspectionTaskId, activity.Grade, activity.EquipmentComments, activity.ReviewStatus, activity.StartedAt, activity.CompletedAt, RowVersion = Convert.ToBase64String(activity.RowVersion), checklist, checkpoints, responses = responses.GroupBy(x => x.CheckpointDefinitionSnapshotId).Select(x => x.First()), findings, correctiveActions, reviewHistory, checkpointReviews, evidence,referenceDocumentsUsed });
+        return Ok(new { activity.Id, activity.InspectionTaskId, activity.Grade, activity.EquipmentComments, activity.IsOnHold, activity.ReviewStatus, activity.StartedAt, activity.CompletedAt, RowVersion = Convert.ToBase64String(activity.RowVersion), checklist, checkpoints, responses = responses.GroupBy(x => x.CheckpointDefinitionSnapshotId).Select(x => x.First()), findings, correctiveActions, reviewHistory, checkpointReviews, evidence,referenceDocumentsUsed });
     }
 
     [HttpPost("tasks/{taskId:guid}/activities")]
@@ -150,7 +150,7 @@ public sealed partial class InspectionActivitiesController(SurveyDbContext db, I
                           join definition in db.CheckpointDefinitionSnapshots.AsNoTracking() on response.CheckpointDefinitionSnapshotId equals definition.Id
                           join action in db.CorrectiveActions.AsNoTracking() on finding.Id equals action.ActivityFindingId into actionGroup
                           from action in actionGroup.DefaultIfEmpty()
-                          where (User.IsInRole(nameof(UserRole.Admin)) || User.IsInRole(nameof(UserRole.Manager)) && (project.CreatedByUserId == ActorId || db.Users.Any(q => q.Id == project.AssignedQcId && q.ManagerId == ActorId)) || User.IsInRole(nameof(UserRole.Surveyor)) && project.AssignedSurveyorId == ActorId && task.AssignedUserId == ActorId || User.IsInRole(nameof(UserRole.Qc)) && project.AssignedQcId == ActorId || User.IsInRole(nameof(UserRole.Client)) && project.AssignedClientId == ActorId)
+                          where (User.IsInRole(nameof(UserRole.Admin)) || User.IsInRole(nameof(UserRole.Manager)) && (project.CreatedByUserId == ActorId || db.Users.Any(q => q.Id == project.AssignedQcId && q.ManagerId == ActorId)) || User.IsInRole(nameof(UserRole.Surveyor)) && (project.AssignedSurveyorId == ActorId || project.AdditionalSurveyorId == ActorId) || User.IsInRole(nameof(UserRole.Qc)) && (project.AssignedQcId == ActorId || project.AdditionalQcId == ActorId) || User.IsInRole(nameof(UserRole.Client)) && (project.AssignedClientId == ActorId || project.ClientAssignments.Any(a => a.IsActive && a.ClientUserId == ActorId)))
                           where projectId == null || project.Id == projectId
                           orderby finding.ReportedAt descending
                           select new { finding.Id, finding.InspectionActivityId, EquipmentId = task.AreaEquipmentId, EquipmentTag = task.AreaEquipmentId.HasValue ? db.AreaEquipment.Where(e => e.Id == task.AreaEquipmentId).Select(e => e.TagNumber).FirstOrDefault() : null, ItemNumber = db.AreaEquipment.Where(e => e.Id == task.AreaEquipmentId).Select(e => e.EquipmentCode).FirstOrDefault(),
@@ -227,7 +227,7 @@ public sealed partial class InspectionActivitiesController(SurveyDbContext db, I
         if (task.AreaEquipmentId is not Guid equipmentId) return Conflict(new { error = "Photo upload currently requires modern project equipment." });
         var projectId = await db.AreaEquipment.Where(x => x.Id == equipmentId).Select(x => (Guid?)x.ProjectId).SingleOrDefaultAsync(ct);
         if (projectId is null || !await CanAccessProject(projectId.Value, ct)) return NotFound();
-        if (User.IsInRole(nameof(UserRole.Surveyor)) && task.AssignedUserId != ActorId) return Forbid();
+        if (User.IsInRole(nameof(UserRole.Surveyor)) && !await IsProjectSurveyor(projectId.Value, ct)) return Forbid();
         if (checkpointResponseRevisionId is Guid responseId && !await (from response in db.CheckpointResponseRevisions join revision in db.InspectionActivityRevisions on response.ActivityRevisionId equals revision.Id where response.Id == responseId && revision.InspectionActivityId == activityId select response.Id).AnyAsync(ct)) return BadRequest(new { error = "Selected checkpoint does not belong to this activity." });
         if (photo is null) return BadRequest(new { error = "Select an image to upload." });
         var idempotencyKey=Request.Headers["Idempotency-Key"].FirstOrDefault();string? contentHash=null;
@@ -250,13 +250,20 @@ public sealed partial class InspectionActivitiesController(SurveyDbContext db, I
         try
         {
             var actor = await db.Users.AsNoTracking().SingleAsync(x => x.Id == ActorId, ct);
-            var file = new SurveyFile { Category = FileCategory.FindingPhoto, FileName = stored.OriginalFileName, StorageKey = stored.RelativePath, ContentType = photo.ContentType, UploadedById = actor.Id };
+            var file = new SurveyFile { Category = FileCategory.FindingPhoto, FileName = stored.OriginalFileName, StorageKey = stored.RelativePath, ContentType = stored.IsPdf ? "application/pdf" : photo.ContentType, UploadedById = actor.Id };
             db.Files.Add(file);
             var evidence = new ActivityEvidence { SurveyFileId = file.Id, InspectionActivityId = activityId, AreaEquipmentId = equipmentId, CheckpointResponseRevisionId = checkpointResponseRevisionId, Role = ActivityEvidenceRole.Checkpoint, Caption = caption?.Trim(), AddedByUserId = actor.Id, AddedAt = DateTimeOffset.UtcNow };
             db.ActivityEvidence.Add(evidence);
+            activity.UpdatedAt = DateTimeOffset.UtcNow;
+            activity.LastModifiedByUserId = ActorId;
             if(idempotencyKey is not null&&contentHash is not null)db.OfflinePhotoSyncReceipts.Add(new OfflinePhotoSyncReceipt{UserId=ActorId,IdempotencyKey=idempotencyKey,ContentHash=contentHash,ActivityId=activityId,CheckpointResponseRevisionId=checkpointResponseRevisionId,EvidenceId=evidence.Id});
             await db.SaveChangesAsync(ct);
             return Ok(new { evidence.Id, evidence.InspectionActivityId, evidence.AreaEquipmentId, evidence.CheckpointResponseRevisionId, evidence.Role, evidence.Caption, evidence.AddedAt, file.FileName, file.ContentType, Url = $"/api/v1/inspection-activities/{activityId:D}/photos/{evidence.Id:D}" });
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            await photoStorage.DeleteAsync(stored.RelativePath, ct);
+            return Conflict(new {error = "The inspection changed. Reload it before adding photos."});
         }
         catch
         {
@@ -282,7 +289,7 @@ public sealed partial class InspectionActivitiesController(SurveyDbContext db, I
         var row = await (from evidence in db.ActivityEvidence.AsNoTracking() join file in db.Files.AsNoTracking() on evidence.SurveyFileId equals file.Id where evidence.InspectionActivityId == activityId && evidence.Id == evidenceId select new { file.StorageKey, file.FileName, file.ContentType }).SingleOrDefaultAsync(ct);
         if (row is null) return NotFound();
         var content = await photoStorage.OpenReadAsync(row.StorageKey, ct);
-        return content is null ? NotFound() : File(content.Stream, row.ContentType, row.FileName);
+        return content is null ? NotFound() : File(content.Stream, content.ContentType, row.FileName, enableRangeProcessing: true);
     }
 
     [HttpPut("{activityId:guid}/equipment-comments")]
@@ -294,12 +301,15 @@ public sealed partial class InspectionActivitiesController(SurveyDbContext db, I
         if (request.Comments?.Length > 4000) return BadRequest(new {error = "Equipment comments must be 4,000 characters or fewer."});
         var actor = await authorizer.RequireActorAsync(ActorId, ct, UserRole.Surveyor, UserRole.Manager, UserRole.Admin);
         var (activity, task) = await authorizer.EnsureActivityScopeAsync(activityId, ct);
-        if (actor.Role == UserRole.Surveyor && task.AssignedUserId != actor.Id) return Forbid();
+        if (actor.Role == UserRole.Surveyor &&
+            (await FindActivityProject(activityId, ct) is not Guid projectId || !await IsProjectSurveyor(projectId, ct))) return Forbid();
         if (activity.ReviewStatus is not (InspectionActivityReviewStatus.Draft or InspectionActivityReviewStatus.ChangesRequested))
             return Conflict(new {error = "This inspection is read-only."});
         InspectionActivityRules.EnsureExpectedRowVersion(activity.RowVersion, request.RowVersion);
         activity.EquipmentComments = request.Comments?.Trim();
+        if (request.IsOnHold.HasValue) activity.IsOnHold = request.IsOnHold.Value;
         activity.UpdatedAt = DateTimeOffset.UtcNow;
+        activity.LastModifiedByUserId = ActorId;
         try { await db.SaveChangesAsync(ct); }
         catch (DbUpdateConcurrencyException) { return Conflict(new {error = "The inspection changed. Reopen it and retry."}); }
         return NoContent();
@@ -313,7 +323,8 @@ public sealed partial class InspectionActivitiesController(SurveyDbContext db, I
         if (!options.Value.Enabled) return NotFound();
         var actor = await authorizer.RequireActorAsync(ActorId, ct, UserRole.Surveyor, UserRole.Manager, UserRole.Admin);
         var (activity, task) = await authorizer.EnsureActivityScopeAsync(activityId, ct);
-        if (actor.Role == UserRole.Surveyor && task.AssignedUserId != actor.Id) return Forbid();
+        if (actor.Role == UserRole.Surveyor &&
+            (await FindActivityProject(activityId, ct) is not Guid projectId || !await IsProjectSurveyor(projectId, ct))) return Forbid();
         if (activity.ReviewStatus != InspectionActivityReviewStatus.Draft)
             return Conflict(new {error = "Submitted inspection evidence is preserved."});
         var evidence = await db.ActivityEvidence.SingleOrDefaultAsync(e => e.Id == evidenceId &&
@@ -323,6 +334,7 @@ public sealed partial class InspectionActivitiesController(SurveyDbContext db, I
             return Conflict(new {error = "Photos synchronized from an offline inspection are preserved."});
         db.ActivityEvidence.Remove(evidence);
         activity.UpdatedAt = DateTimeOffset.UtcNow;
+        activity.LastModifiedByUserId = ActorId;
         await db.SaveChangesAsync(ct);
         return NoContent();
     });
@@ -348,7 +360,7 @@ public sealed partial class InspectionActivitiesController(SurveyDbContext db, I
         try
         {
             var actor = await db.Users.AsNoTracking().SingleAsync(x => x.Id == ActorId, ct);
-            var file = new SurveyFile { Category = FileCategory.FindingPhoto, FileName = stored.OriginalFileName, StorageKey = stored.RelativePath, ContentType = photo.ContentType, UploadedById = actor.Id };
+            var file = new SurveyFile { Category = FileCategory.FindingPhoto, FileName = stored.OriginalFileName, StorageKey = stored.RelativePath, ContentType = stored.IsPdf ? "application/pdf" : photo.ContentType, UploadedById = actor.Id };
             var actionEvent = new CorrectiveActionEvent { CorrectiveActionId = row.Action.Id, Kind = CorrectiveActionEventKind.EvidenceAdded, ResultingStatus = row.Action.Status, ActorUserId = actor.Id, Comment = caption?.Trim(), OccurredAt = DateTimeOffset.UtcNow };
             db.Files.Add(file); db.CorrectiveActionEvents.Add(actionEvent);
             var evidence = new ActivityEvidence { SurveyFileId = file.Id, InspectionActivityId = row.Activity.Id, AreaEquipmentId = equipmentId, CorrectiveActionEventId = actionEvent.Id, Role = role, Caption = caption?.Trim(), AddedByUserId = actor.Id, AddedAt = DateTimeOffset.UtcNow };
@@ -371,10 +383,21 @@ public sealed partial class InspectionActivitiesController(SurveyDbContext db, I
                           join task in db.InspectionTasks.AsNoTracking() on activity.InspectionTaskId equals task.Id
                           join plan in db.InspectionPlans.AsNoTracking() on task.InspectionPlanId equals plan.Id
                           join project in db.Projects.AsNoTracking() on plan.ProjectId equals project.Id
+                          join equipment in db.AreaEquipment.AsNoTracking() on task.AreaEquipmentId equals equipment.Id
+                          join area in db.ProjectAreas.AsNoTracking() on equipment.AreaId equals area.Id
+                          join inspector in db.Users.AsNoTracking() on activity.InspectorUserId equals inspector.Id
                           where activity.ReviewStatus == InspectionActivityReviewStatus.Submitted || activity.ReviewStatus == InspectionActivityReviewStatus.InReview
-                          where (User.IsInRole(nameof(UserRole.Admin)) || project.AssignedQcId == actor || (User.IsInRole(nameof(UserRole.Manager)) && project.CreatedByUserId == actor))
-                          orderby activity.StartedAt
-                          select new { activity.Id, activity.Grade, activity.ReviewStatus, activity.StartedAt, activity.InspectorNameSnapshot, project.ProjectName, EquipmentId = task.AreaEquipmentId })
+                          where (User.IsInRole(nameof(UserRole.Admin)) ||
+                                 (User.IsInRole(nameof(UserRole.Qc)) && (project.AssignedQcId == actor || project.AdditionalQcId == actor)) ||
+                                 (User.IsInRole(nameof(UserRole.Manager)) && (project.CreatedByUserId == actor ||
+                                     db.Users.Any(q => q.Id == project.AssignedQcId && q.ManagerId == actor))))
+                          orderby activity.UpdatedAt descending
+                          select new {activity.Id, activity.Grade, activity.ReviewStatus, activity.StartedAt,
+                              SubmittedAt = activity.CompletedAt ?? activity.UpdatedAt,
+                              InspectorName = activity.InspectorNameSnapshot ?? inspector.DisplayName,
+                              ProjectId = project.Id, project.ProjectName, project.JobNo, project.Location,
+                              AreaId = area.Id, area.AreaName, EquipmentId = equipment.Id, equipment.TagNumber,
+                              equipment.EquipmentCode, equipment.Type, equipment.MarkingNo})
             .ToListAsync(ct);
         return Ok(rows);
     }
@@ -418,18 +441,29 @@ public sealed partial class InspectionActivitiesController(SurveyDbContext db, I
         return Ok(new { TemplateId = template.Id, template.Version, QuestionId = question.Id, question.NumericReadingEnabled, question.MeasurementUnit, question.MinimumReading, question.MaximumReading, question.NumericReadingRequired });
     }
 
+    private Task<bool> IsProjectSurveyor(Guid projectId, CancellationToken ct) =>
+        db.Projects.AnyAsync(x => x.Id == projectId &&
+            (x.AssignedSurveyorId == ActorId || x.AdditionalSurveyorId == ActorId), ct);
+
+    private Task<Guid?> FindActivityProject(Guid activityId, CancellationToken ct) =>
+        (from activity in db.InspectionActivities.AsNoTracking()
+         join task in db.InspectionTasks on activity.InspectionTaskId equals task.Id
+         join plan in db.InspectionPlans on task.InspectionPlanId equals plan.Id
+         where activity.Id == activityId
+         select plan.ProjectId).SingleOrDefaultAsync(ct);
+
     private async Task<bool> CanAccessActivity(Guid activityId, CancellationToken ct)
     {
-        var projectId = await (from activity in db.InspectionActivities.AsNoTracking() join task in db.InspectionTasks.AsNoTracking() on activity.InspectionTaskId equals task.Id join plan in db.InspectionPlans.AsNoTracking() on task.InspectionPlanId equals plan.Id where activity.Id == activityId select plan.ProjectId).SingleOrDefaultAsync(ct);
+        var projectId = await FindActivityProject(activityId, ct);
         return projectId.HasValue && await CanAccessProject(projectId.Value, ct);
     }
 
     private async Task<bool> CanAccessProject(Guid projectId, CancellationToken ct)
     {
         if (User.IsInRole(nameof(UserRole.Admin))) return await db.Projects.AnyAsync(x => x.Id == projectId, ct);
-        if (User.IsInRole(nameof(UserRole.Surveyor))) return await db.Projects.AnyAsync(x => x.Id == projectId && (x.AssignedSurveyorId == ActorId || db.InspectionTasks.Any(t => t.AssignedUserId == ActorId && db.InspectionPlans.Any(p => p.Id == t.InspectionPlanId && p.ProjectId == x.Id))), ct);
-        if (User.IsInRole(nameof(UserRole.Qc))) return await db.Projects.AnyAsync(x => x.Id == projectId && x.AssignedQcId == ActorId, ct);
-        if (User.IsInRole(nameof(UserRole.Client))) return await db.Projects.AnyAsync(x => x.Id == projectId && x.AssignedClientId == ActorId, ct);
+        if (User.IsInRole(nameof(UserRole.Surveyor))) return await db.Projects.AnyAsync(x => x.Id == projectId && ((x.AssignedSurveyorId == ActorId || x.AdditionalSurveyorId == ActorId) || db.InspectionTasks.Any(t => t.AssignedUserId == ActorId && db.InspectionPlans.Any(p => p.Id == t.InspectionPlanId && p.ProjectId == x.Id))), ct);
+        if (User.IsInRole(nameof(UserRole.Qc))) return await db.Projects.AnyAsync(x => x.Id == projectId && (x.AssignedQcId == ActorId || x.AdditionalQcId == ActorId), ct);
+        if (User.IsInRole(nameof(UserRole.Client))) return await db.Projects.AnyAsync(x => x.Id == projectId && (x.AssignedClientId == ActorId || x.ClientAssignments.Any(a => a.IsActive && a.ClientUserId == ActorId)), ct);
         if (User.IsInRole(nameof(UserRole.Manager))) return await db.Projects.AnyAsync(x => x.Id == projectId && (x.CreatedByUserId == ActorId || db.Users.Any(q => q.Id == x.AssignedQcId && q.ManagerId == ActorId)), ct);
         return false;
     }
@@ -446,4 +480,4 @@ public sealed partial class InspectionActivitiesController(SurveyDbContext db, I
 
 public sealed record StartEquipmentActivityRequest(InspectionType Grade, DateTimeOffset? StartedAt = null);
 
-public sealed record EquipmentCommentsRequest(string? Comments, string RowVersion);
+public sealed record EquipmentCommentsRequest(string? Comments, string RowVersion, bool? IsOnHold = null);

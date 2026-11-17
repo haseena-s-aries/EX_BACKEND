@@ -68,14 +68,17 @@ internal static class ReportChecks
         var area = new ProjectArea {ProjectId = project.Id, AreaName = "MAIN DECK", LayoutImagePath = "layout.png"};
         var second = new ProjectArea {ProjectId = project.Id, AreaName = "ENGINE ROOM"};
         var layout = new ProjectAreaPhoto {ProjectAreaId = area.Id, FileName = "not-visible-layout.png", FilePath = "layout.png", UploadedByUserId = manager.Id};
+        var additionalLayout = new ProjectAreaPhoto {ProjectAreaId = area.Id, FileName = "section-b.png", FilePath = "layout-section-b.png", UploadedByUserId = surveyor.Id};
+        var commonLayout = new SurveyFile {ProjectId = project.Id, Category = FileCategory.ProjectCommonLayout, FileName = "ga-layout.png", StorageKey = "ga-layout.png", ContentType = "image/png", UploadedById = surveyor.Id};
         var equipment = new AreaEquipment {ProjectId = project.Id, AreaId = area.Id, SequenceNo = 1, TagNumber = "TAG-ALPHA", EquipmentCode = "EQUIP-ALPHA", Type = "Transformer", XPercent = 25, YPercent = 50, CircuitId = "CIRCUIT-1", Manufacturer = "Recorded Manufacturer", ProtectionDetails = "Recorded protection", CertificateNumber = "Recorded Certificate", Location = "Deck North", NotApplicableFieldsJson = "[\"temperatureClass\"]", CreatedByUserId = surveyor.Id};
-        var uninspected = new AreaEquipment {ProjectId = project.Id, AreaId = area.Id, SequenceNo = 2, TagNumber = "TAG-BETA", Type = "Motor", XPercent = 75, YPercent = 25, CreatedByUserId = surveyor.Id};
+        equipment.LayoutImageKey = $"area:{additionalLayout.Id}";
+        var uninspected = new AreaEquipment {ProjectId = project.Id, AreaId = area.Id, SequenceNo = 2, TagNumber = "TAG-BETA", Type = "Motor", XPercent = 75, YPercent = 25, CreatedByUserId = surveyor.Id, LayoutImageKey = $"common:{commonLayout.Id}"};
         var template = new ChecklistTemplate {Name = "Recorded Detailed Checklist", InspectionType = InspectionType.Detailed};
         var questions = new[] {"Enclosure is intact", "Cable connections are secure", "Unused terminals are protected"}.Select((text, n) => new ChecklistQuestion {ChecklistTemplateId = template.Id, SortOrder = n + 1, Text = text}).ToArray();
         var inspection = new SurveySession {AreaEquipmentId = equipment.Id, SurveyorId = surveyor.Id, ChecklistTemplateId = template.Id, Status = SurveyStatus.Returned, SubmittedAt = DateTimeOffset.UtcNow, InspectionTimestamp = DateTimeOffset.UtcNow, InspectorName = "Recorded Inspector", SurveyorRemarks = "Cable needs replacement. Surveyor remark from database."};
         var finding = new Finding {SurveySessionId = inspection.Id, Observation = "Cable insulation damaged", Recommendation = "Replace the damaged cable", Severity = "High"};
         var photo = new SurveyFile {SurveySessionId = inspection.Id, FindingId = finding.Id, FileName = "not-visible-photo.png", StorageKey = "photo.png", ContentType = "image/png", UploadedById = surveyor.Id, Category = FileCategory.FindingPhoto};
-        db.Projects.Add(project); db.ProjectAreas.AddRange(area, second); db.ProjectAreaPhotos.Add(layout); db.AreaEquipment.AddRange(equipment, uninspected); db.ChecklistTemplates.Add(template); db.ChecklistQuestions.AddRange(questions); db.SurveySessions.Add(inspection); db.Findings.Add(finding); db.Files.Add(photo);
+        db.Projects.Add(project); db.ProjectAreas.AddRange(area, second); db.ProjectAreaPhotos.AddRange(layout, additionalLayout); db.AreaEquipment.AddRange(equipment, uninspected); db.ChecklistTemplates.Add(template); db.ChecklistQuestions.AddRange(questions); db.SurveySessions.Add(inspection); db.Findings.Add(finding); db.Files.AddRange(photo, commonLayout);
         db.SurveyAnswers.AddRange(questions.Select((q, n) => new SurveyAnswer {SurveySessionId = inspection.Id, ChecklistQuestionId = q.Id, Value = new[] {"True", "False", "N/A"}[n], Comment = n == 1 ? "Loose cable" : null}));
         db.QcReviews.Add(new QcReview {SurveySessionId = inspection.Id, ReviewedByUserId = manager.Id, Status = QcReviewStatus.ChangesRequested, Severity = QcSeverity.High, Comments = "Please correct cable insulation", StartedAt = DateTimeOffset.UtcNow, ReviewedAt = DateTimeOffset.UtcNow});
         await db.SaveChangesAsync();
@@ -93,14 +96,58 @@ internal static class ReportChecks
         Check(haerRow.InspectionHistory.Single().Grade == "Detailed" && haerRow.InspectionHistory.Single().Result == "Fail" && haerRow.InspectionHistory.Single().Status == "ChangesRequested" && haerRow.OutstandingDefectStatuses.Contains("Open: 1"),
             "HAER keeps per-equipment inspection history and actionable defect state details");
         var haerExcel = HaerReportExports.Excel(haer);
-        var haerExcelText = System.Text.Encoding.UTF8.GetString(haerExcel);
-        Check(haerExcelText.Contains("urn:schemas-microsoft-com:office:spreadsheet") && haerExcelText.Contains("Not Applicable") && haerExcelText.Contains("Unknown / not recorded") && haerExcelText.Contains("Equipment Inspection History") && haerExcelText.Contains("Open: 1"),
-            "HAER Excel-compatible export carries register fields and explicit unknown/N/A states");
+        using (var workbook = new System.IO.Compression.ZipArchive(new MemoryStream(haerExcel)))
+        {
+            System.Xml.Linq.XNamespace ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+            using var sheetStream = workbook.GetEntry("xl/worksheets/sheet1.xml")!.Open();
+            var sheet = System.Xml.Linq.XDocument.Load(sheetStream);
+            var workbookRows = sheet.Descendants(ns + "row").ToArray();
+            Check(workbookRows.Length == 3 && workbookRows.All(row => row.Elements(ns + "c").Count() == 22)
+                && workbookRows[0].Elements(ns + "c").ElementAt(1).Value == "Project Name"
+                && workbookRows.Skip(1).All(row => row.Elements(ns + "c").ElementAt(1).Value == project.ProjectName)
+                && sheet.Descendants(ns + "dimension").Single().Attribute("ref")!.Value == "A1:V3"
+                && sheet.Descendants(ns + "autoFilter").Single().Attribute("ref")!.Value == "A1:V3"
+                && sheet.Descendants(ns + "pane").Single().Attribute("state")!.Value == "frozen"
+                && sheet.Descendants(ns + "c").All(cell => cell.Attribute("t")!.Value == "inlineStr"),
+                "HAER XLSX has Project Name after Sl. No, 22 text columns, complete rows, full filter range and a frozen header");
+            using var styleStream = workbook.GetEntry("xl/styles.xml")!.Open();
+            var styles = System.Xml.Linq.XDocument.Load(styleStream);
+            Check(styles.Descendants(ns + "fgColor").Any(color => color.Attribute("rgb")?.Value == "FFFFFFFF")
+                && styles.Descendants(ns + "left").Any(border => border.Attribute("style")?.Value == "thin"),
+                "HAER XLSX uses the white header and thin grid borders");
+        }
+        var specialHaer = haer with { Equipment = [haerRow with { ItemNumber = "000123", Description = "Long, \"quoted\"\ntext " + new string('x', 1000) }] };
+        var csv = System.Text.Encoding.UTF8.GetString(HaerReportExports.Csv(specialHaer));
+        Check(csv.Contains("\"Sl. No\",\"Project Name\",\"Item #\"")
+            && csv.Contains($"\"1\",\"{project.ProjectName}\",\"000123\""),
+            "HAER CSV includes the related project name after Sl. No without shifting equipment values");
+        Check(csv.Contains("\"Long, \"\"quoted\"\"\ntext ") && csv.Contains(new string('x', 1000)) && csv.Contains("\"000123\""),
+            "HAER CSV preserves leading zero IDs, full long text, commas, quotes and line breaks");
+        if (Environment.GetEnvironmentVariable("EX_SURVEY_HAER_QA_XLSX") is {Length: > 0} workbookQaPath)
+            await File.WriteAllBytesAsync(workbookQaPath, HaerReportExports.Excel(specialHaer));
         var haerPdf = HaerReportExports.Pdf(haer);
         using (var haerPdfDocument = PdfReader.Open(new MemoryStream(haerPdf), PdfDocumentOpenMode.Import))
-            Check(haerPdfDocument.PageCount > 0, "HAER PDF export generates a readable PDF for synthetic equipment data");
+            Check(haerPdfDocument.PageCount == 1 && Math.Abs(haerPdfDocument.Pages[0].Width.Point - 1191) < 2 &&
+                Math.Abs(haerPdfDocument.Pages[0].Height.Point - 842) < 2, "HAER PDF export opens as an A3 landscape register");
+        var longHaer = haer with { Equipment = Enumerable.Range(1, 80).Select(number => haerRow with {
+            TagNumber = $"QA-TAG-{number:D3}", ItemNumber = $"QA-ITEM-{number:D3}",
+            Description = number == 32 ? string.Join(" ", Enumerable.Repeat("Recorded long equipment description.", 24)) : "Recorded equipment description",
+            Comments = "Recorded inspection comments"
+        }).ToArray() };
+        using var clientLogoFixture = new MemoryStream(Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAFAAAAAoCAIAAADmAupWAAAAW0lEQVR4nOXOMQEAIAzAsFIN868CgbhgR6Mg585QIjESIzESIzESIzESIzESIzESIzESIzESIzESIzESIzESIzESIzESIzESIzESIzESIzESIzESIzES43bgtwdlagEs2fpQPQAAAABJRU5ErkJggg=="));
+        var multipageHaerPdf = HaerReportExports.Pdf(longHaer, project.Location, "aries_mar_engg.png", clientLogoFixture);
+        using (var document = PdfReader.Open(new MemoryStream(multipageHaerPdf), PdfDocumentOpenMode.Import))
+            Check(document.PageCount >= 3 && document.Pages.Cast<PdfSharp.Pdf.PdfPage>().All(page => page.Width.Point > page.Height.Point),
+                "HAER PDF paginates long registers without changing landscape orientation");
+        if (Environment.GetEnvironmentVariable("EX_SURVEY_HAER_QA_PDF") is {Length: > 0} haerQaPath)
+            await File.WriteAllBytesAsync(haerQaPath, multipageHaerPdf);
         Check(report.Areas.Count == 2 && report.Areas[0].Equipment.Count + report.Areas[1].Equipment.Count == 2, "Report loads actual project areas and equipment in one aggregate");
-        Check(report.Assets.Count() == 3 && report.PreparedBy == surveyor.DisplayName && report.Client == client.DisplayName && report.CheckedBy == manager.DisplayName, "Report resolves actual assignments and asset references");
+        Check(report.Areas[0].Layouts.Count == 2 && report.Areas[0].Layouts.Select(x => x.Key).ToHashSet().SetEquals([$"area:{layout.Id}", $"area:{additionalLayout.Id}"])
+            && report.Areas[0].Equipment.Single(e => e.SequenceNo == 1).LayoutImageKey == $"area:{additionalLayout.Id}"
+            && report.SharedLayouts.Count == 1 && report.SharedLayouts[0].Key == $"common:{commonLayout.Id}"
+            && report.SharedLayouts[0].Equipment.Single().SequenceNo == 2
+            && report.Assets.Count() == 5, "Report includes each selected area and shared layout once with its saved marker association");
+        Check(report.PreparedBy == surveyor.DisplayName && report.Client == client.DisplayName && report.CheckedBy == manager.DisplayName, "Report resolves actual assignments and asset references");
         var record = report.Areas.SelectMany(a => a.Equipment).Single(e => e.SequenceNo == 1).Inspections.Single();
         Check(record.Answers.Select(a => ProjectReportPdf.Answer(a.Value)).SequenceEqual(new[] {"PASS", "FAIL", "N/A"}), "PDF answer representation uses stored answers, never assumed Pass");
         Check(record.Findings.Single().Recommendation == finding.Recommendation && record.Photos.Single().Key == "photo-" + photo.Id && record.Status == "ChangesRequested", "Report includes findings, recommendations, photos and real QC result");
@@ -124,12 +171,12 @@ internal static class ReportChecks
         project.Description = "INITIAL ISSUE"; project.ClientName = "PROJECT CLIENT COMPANY"; project.ClientLogoPath = "logo.png";
         await db.SaveChangesAsync();
         report = (await loader.Load(project.Id, Principal(manager), default))!;
-        Check(report.UidNumber == "226869" && report.DocumentNumber == "DYNAMIC/5001" && report.Revision == "A" && report.Description == "INITIAL ISSUE" && report.Client == "PROJECT CLIENT COMPANY" && report.ClientLogo?.Url.EndsWith("/assets/client-logo") == true && report.Assets.Count() == 4, "Report maps optional project metadata and client branding from saved project data");
+        Check(report.UidNumber == "226869" && report.DocumentNumber == "DYNAMIC/5001" && report.Revision == "A" && report.Description == "INITIAL ISSUE" && report.Client == "PROJECT CLIENT COMPANY" && report.ClientLogo?.Url.EndsWith("/assets/client-logo") == true && report.Assets.Count() == 6, "Report maps optional project metadata and client branding from saved project data");
         var storage = new Images();
         var company = CompanyAssets.Seed().Single(c => c.DisplayName.EndsWith("- DF"));
         db.CompanyMasters.Add(company); project.OurCompanyId = company.Id; await db.SaveChangesAsync();
         report = (await loader.Load(project.Id, Principal(manager), default))!;
-        Check(report.OurCompany?.Email == company.Email && report.OurCompanyLogo is not null && report.Assets.Count() == 5, "Report dynamically resolves selected company contacts and logo");
+        Check(report.OurCompany?.Email == company.Email && report.OurCompanyLogo is not null && report.Assets.Count() == 7, "Report dynamically resolves selected company contacts and logo");
         var result = await new ProjectReportPdf(storage, NullLogger.Instance).Generate(report, default);
         using var pdf = PdfReader.Open(new MemoryStream(result), PdfDocumentOpenMode.Import);
         Check(pdf.PageCount >= 18 && pdf.Pages.Cast<PdfPage>().Any(p => p.Width.Point > p.Height.Point), "Reference-style report includes portrait sections and landscape tables");

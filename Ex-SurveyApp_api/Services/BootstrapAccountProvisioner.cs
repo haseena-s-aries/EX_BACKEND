@@ -9,6 +9,23 @@ public enum DevelopmentAccountSeedResult { Created, AlreadyExists, RoleConflict 
 
 public static class BootstrapAccountProvisioner
 {
+    // Remember the configured bootstrap slot by user ID, so a verified email change
+    // cannot cause startup to recreate the old login or reset user-managed details.
+    public static async Task ProvisionStartupAsync(SurveyDbContext db, IPasswordHasher<User> hasher,
+        string section, string email, string password, string name, UserRole role, CancellationToken ct = default)
+    {
+        var action = "Bootstrap linked: " + section;
+        if (await db.AuditLogs.AnyAsync(a => a.EntityType == "User" && a.Action == action, ct)) return;
+        var normalized = email.Trim().ToLowerInvariant();
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Email == normalized, ct);
+        if (user is null)
+        {
+            await ProvisionAsync(db, hasher, email, password, name, role, ct);
+            user = await db.Users.SingleAsync(u => u.Email == normalized, ct);
+        }
+        db.AuditLogs.Add(new AuditLog {EntityType = "User", EntityId = user.Id, Action = action});
+        await db.SaveChangesAsync(ct);
+    }
     // Demo accounts are initial fixtures, not an authority over later user-management changes.
     public static async Task<DevelopmentAccountSeedResult> CreateDevelopmentAccountIfMissingAsync(
         SurveyDbContext db, IPasswordHasher<User> passwordHasher, string email, string password,
@@ -69,7 +86,10 @@ public static class BootstrapAccountProvisioner
             user.IsActive = true;
             user.ApprovalStatus = ApprovalStatus.Approved;
             if (passwordHasher.VerifyHashedPassword(user, user.PasswordHash, password) == PasswordVerificationResult.Failed)
+            {
                 user.PasswordHash = passwordHasher.HashPassword(user, password);
+                user.AuthVersion++;
+            }
         }
 
         await db.SaveChangesAsync(cancellationToken);

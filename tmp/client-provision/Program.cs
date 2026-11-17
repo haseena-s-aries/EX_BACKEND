@@ -1,0 +1,15 @@
+using Ex_SurveyApp_api.Data;
+using Ex_SurveyApp_api.Models;
+using Ex_SurveyApp_api.Services;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
+var connection = @"Server=(localdb)\MSSQLLocalDB;Database=ExSurveyMigrationDesignOnly;Integrated Security=True;Encrypt=True;TrustServerCertificate=True;Connect Timeout=15";
+await using var db = new SurveyDbContext(new DbContextOptionsBuilder<SurveyDbContext>().UseSqlServer(connection).Options);
+var email = "client@abc.com";
+if (await db.Users.AnyAsync(u => u.Email == email)) email = "client.test@abc.com";
+if (await db.Users.AnyAsync(u => u.Email == email)) throw new Exception("Client test email already exists; no account changed.");
+var password = "Client@" + Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(6)) + "!";
+await BootstrapAccountProvisioner.ProvisionAsync(db, new PasswordHasher<User>(), email, password, "Test Client", UserRole.Client);
+var user = await db.Users.AsNoTracking().SingleAsync(u => u.Email == email);
+if (user.Role != UserRole.Client || !user.IsActive || user.ApprovalStatus != ApprovalStatus.Approved || new PasswordHasher<User>().VerifyHashedPassword(user, user.PasswordHash, password) == PasswordVerificationResult.Failed) throw new Exception("Verification failed");
+Console.WriteLine($"Created and verified LOCAL Client account\nEmail: {email}\nPassword: {password}\nDatabase: ExSurveyMigrationDesignOnly");

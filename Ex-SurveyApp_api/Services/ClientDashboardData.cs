@@ -8,7 +8,7 @@ public sealed class ClientDashboardData(SurveyDbContext db, ClaimsPrincipal user
 {
     public Guid UserId => Guid.Parse(user.FindFirstValue(ClaimTypes.NameIdentifier)!);
     // Reuse the existing report access policy, then require the Client assignment.
-    public IQueryable<Project> Projects => new ProjectReportData(db).AccessibleProjects(user).Where(p => p.AssignedClientId == UserId);
+    public IQueryable<Project> Projects => new ProjectReportData(db).AccessibleProjects(user).Where(p => (p.AssignedClientId == UserId || p.ClientAssignments.Any(a => a.IsActive && a.ClientUserId == UserId)));
     public Task<bool> HasProject(Guid id, CancellationToken ct) => Projects.AnyAsync(p => p.Id == id, ct);
 
     public async Task<IReadOnlyList<ClientProjectSummary>> Summaries(CancellationToken ct)

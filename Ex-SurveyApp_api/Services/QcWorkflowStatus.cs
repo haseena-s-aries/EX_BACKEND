@@ -11,7 +11,19 @@ public static class QcWorkflowStatus
         if (qcStatus == QcReviewStatus.ChangesRequested || surveyStatus == SurveyStatus.Returned)
             return EquipmentInspectionStatus.ChangesRequested;
         if (surveyStatus is null) return EquipmentInspectionStatus.NotStarted;
-        return surveyStatus == SurveyStatus.Submitted ? EquipmentInspectionStatus.Completed : EquipmentInspectionStatus.InProgress;
+        return surveyStatus == SurveyStatus.Submitted ? EquipmentInspectionStatus.PendingQcReview : EquipmentInspectionStatus.InProgress;
+    }
+
+    public static EquipmentInspectionStatus InspectionStatus(
+        InspectionActivityReviewStatus reviewStatus, bool isOnHold)
+    {
+        if (reviewStatus == InspectionActivityReviewStatus.Accepted)
+            return EquipmentInspectionStatus.QcApproved;
+        if (reviewStatus == InspectionActivityReviewStatus.ChangesRequested)
+            return EquipmentInspectionStatus.ChangesRequested;
+        if (reviewStatus is InspectionActivityReviewStatus.Submitted or InspectionActivityReviewStatus.InReview)
+            return EquipmentInspectionStatus.PendingQcReview;
+        return isOnHold ? EquipmentInspectionStatus.Hold : EquipmentInspectionStatus.InProgress;
     }
     public static QcReviewStatus Aggregate(IEnumerable<QcReviewStatus> values)
     {

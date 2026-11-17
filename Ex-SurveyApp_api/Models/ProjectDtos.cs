@@ -2,11 +2,13 @@ using System.ComponentModel.DataAnnotations;
 
 namespace Ex_SurveyApp_api.Models;
 
+public record ProjectScheduleSummary(string Status, DateOnly? ExpectedCompletion, int DelayDays, string? LatestDelayReason);
+
 public record UpsertProjectRequest(
 
     [Required, StringLength(200, MinimumLength = 1)] string ProjectName,
 
-    [Required, StringLength(150, MinimumLength = 1)] string Sector,
+    [StringLength(150)] string? Sector,
 
     [Required, StringLength(100, MinimumLength = 1)] string JobNo,
 
@@ -25,8 +27,8 @@ public record UpsertProjectRequest(
     [StringLength(200)] string? DocumentNumber = null,
     [StringLength(100)] string? Revision = null,
     [StringLength(4000)] string? Description = null,
-    [StringLength(200)] string? ClientName = null,
-    bool RemoveClientLogo = false, Guid? OurCompanyId = null);
+    [Required(ErrorMessage = "Client Company Name is required."), StringLength(200)] string? ClientName = null,
+    bool RemoveClientLogo = false, Guid? OurCompanyId = null, bool PreserveSurveyorAssignment = false, DateOnly? TargetDate = null, Guid? AdditionalQcId = null, bool UpdateAdditionalQcAssignment = false, [MaxLength(200)] Guid[]? AssignedClientIds = null, bool ClearClientAssignments = false);
 
 public record UpsertProjectAreaRequest(
 
@@ -69,7 +71,7 @@ public record ProjectSummaryResponse(
 
     DateTimeOffset UpdatedAt,
 
-    int AreaCount);
+    int AreaCount, DateOnly? TargetDate = null, ProjectScheduleSummary? Schedule = null, Guid? AdditionalSurveyorId = null, string ReportStatus = "Ongoing", IReadOnlyCollection<Guid>? AssignedClientIds = null);
 
 public record ProjectResponse(
 
@@ -105,7 +107,7 @@ public record ProjectResponse(
     string? HazardousAreaPlanContentType = null,
     string? UidNumber = null, string? DocumentNumber = null, string? Revision = null,
     string? Description = null, string? ClientName = null, string? ClientLogoPath = null,
-    Guid? OurCompanyId = null, CompanyResponse? OurCompany = null);
+    Guid? OurCompanyId = null, CompanyResponse? OurCompany = null, DateOnly? TargetDate = null, Guid? AdditionalQcId = null, string ReportStatus = "Ongoing", IReadOnlyCollection<Guid>? AssignedClientIds = null, IReadOnlyCollection<ProjectAssignedClientResponse>? AssignedClients = null);
 
 public record ProjectAreaResponse(
 
@@ -140,7 +142,7 @@ public record ProjectAreaEquipmentResponse(
     string? CertificateNumber,
     string? RfidTagUid,
     DateTimeOffset CreatedAt,
-    string InspectionStatus); public record ProjectAreaPhotoResponse(
+    string InspectionStatus, string? LayoutImageKey = null, int? MarkingNo = null); public record ProjectAreaPhotoResponse(
 
     Guid Id,
 
@@ -167,3 +169,5 @@ public record ProjectAssignableUserResponse(
     UserRole Role,
     Guid? ManagerId = null,
     string? ManagerName = null);
+
+public record ProjectAssignedClientResponse(Guid Id, string DisplayName, string Email);

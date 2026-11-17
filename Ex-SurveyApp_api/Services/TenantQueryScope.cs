@@ -67,6 +67,6 @@ public sealed class TenantQueryScope(SurveyDbContext db, ITenantContextAccessor 
         (x.EquipmentId == null || LegacyRecordMaps("Equipment").Any(m => m.SourceRecordKey == x.EquipmentId.Value.ToString())));
     public IQueryable<ReportRevision> ReportRevisions() => db.ReportRevisions.AsNoTracking()
         .Where(x => LegacyRecordMaps("Job").Any(m => m.SourceRecordKey == x.JobId.ToString()));
-    public IQueryable<Project> ClientDashboardProjects(Guid clientId) => Projects().Where(x => x.AssignedClientId == clientId);
+    public IQueryable<Project> ClientDashboardProjects(Guid clientId) => Projects().Where(x => (x.AssignedClientId == clientId || x.ClientAssignments.Any(a => a.IsActive && a.ClientUserId == clientId)));
 
 }

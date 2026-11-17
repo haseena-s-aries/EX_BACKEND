@@ -10,7 +10,7 @@ using Microsoft.EntityFrameworkCore;
 namespace Ex_SurveyApp_api.Controllers;
 
 [ApiController]
-[Authorize(Roles = "Admin,Manager,Surveyor")]
+[Authorize(Roles = "Admin,Manager,Surveyor,Qc")]
 [EndpointScopeInventory(EndpointScopeKind.TenantResource)]
 [Route("api/defects")]
 public partial class DefectsController(SurveyDbContext db, IProjectPhotoStorage storage) : ControllerBase
@@ -46,7 +46,7 @@ public partial class DefectsController(SurveyDbContext db, IProjectPhotoStorage 
         var shown = openOnly ? open : all.ToArray();
         var ids = shown.Select(x => x.Id).ToArray();
         var photos = await db.Files.AsNoTracking().Where(f => f.FindingId.HasValue && ids.Contains(f.FindingId.Value) &&
-            f.Category == FileCategory.FindingPhoto && f.ContentType.StartsWith("image/"))
+            f.Category == FileCategory.FindingPhoto && (f.ContentType.StartsWith("image/") || f.ContentType == "application/pdf"))
             .Select(f => new {f.Id, f.FindingId, f.FileName, f.EquipmentPhotoRole, f.UploadedAt}).ToListAsync(ct);
         return Ok(new DefectsResponse(summary, shown.Select(row => row with {
             Severity = Severity(row.Severity), Photos = photos.Where(f => f.FindingId == row.Id).OrderBy(f => f.UploadedAt).ThenBy(f => f.Id)
@@ -59,7 +59,7 @@ public partial class DefectsController(SurveyDbContext db, IProjectPhotoStorage 
     {
         if (!await Rows().AnyAsync(x => x.Id == findingId, ct) && !await RegisterRows().AnyAsync(x => x.Id == findingId, ct)) return NotFound();
         var file = await db.Files.AsNoTracking().SingleOrDefaultAsync(f => f.Id == photoId && f.FindingId == findingId &&
-            f.Category == FileCategory.FindingPhoto && f.ContentType.StartsWith("image/"), ct);
+            f.Category == FileCategory.FindingPhoto && (f.ContentType.StartsWith("image/") || f.ContentType == "application/pdf"), ct);
         if (file is null) return NotFound();
         var content = await storage.OpenReadAsync(file.StorageKey, ct);
         if (content is null) return NotFound();

@@ -10,7 +10,7 @@ namespace Ex_SurveyApp_api.Controllers;
 
 [ApiController]
 [Ex_SurveyApp_api.Attributes.EndpointScopeInventory(Ex_SurveyApp_api.Attributes.EndpointScopeKind.TenantResource)]
-[Authorize(Roles = "Admin,Manager,Surveyor")]
+[Authorize(Roles = "Admin,Manager,Surveyor,Qc")]
 [Route("api/v1/haer")]
 public sealed class HaerController(SurveyDbContext db)
     : ControllerBase

@@ -19,8 +19,10 @@ public sealed record ReportInspection(DateTimeOffset? Date, string Inspector, st
 public sealed record ReportEquipment(int SequenceNo, string TagNumber, string? EquipmentId, string Type,
     decimal XPercent, decimal YPercent, string? CircuitId, string? Location, string? Manufacturer,
     string? ProtectionDetails, string? CertificateNumber, string? RfidTagUid,
-    IReadOnlyList<ReportInspection> Inspections) {public Guid Id {get; init;} public string InspectionStatus {get; init;} = "NotStarted";};
-public sealed record ReportArea(string Name, ReportAsset? Layout, IReadOnlyList<ReportEquipment> Equipment) {public Guid Id {get; init;}};
+    IReadOnlyList<ReportInspection> Inspections) {public Guid Id {get; init;} public string InspectionStatus {get; init;} = "NotStarted"; public string? LayoutImageKey {get; init;} public string AreaName {get; init;} = "";};
+public sealed record ReportAreaLayout(string Key, string Name, ReportAsset Image);
+public sealed record ReportArea(string Name, ReportAsset? Layout, IReadOnlyList<ReportEquipment> Equipment) {public Guid Id {get; init;} public IReadOnlyList<ReportAreaLayout> Layouts {get; init;} = [];}
+public sealed record ReportSharedLayout(string Key, string Name, ReportAsset Image, IReadOnlyList<ReportEquipment> Equipment);
 public sealed record ProjectReport(Guid ProjectId, string ProjectName, string JobNumber, string SiteName, string Location,
     string Client, string PreparedBy, string CheckedBy, string ApprovedBy, DateTimeOffset GeneratedAt,
     ReportAsset? HazardousAreaPlan, IReadOnlyList<ReportArea> Areas)
@@ -34,11 +36,14 @@ public sealed record ProjectReport(Guid ProjectId, string ProjectName, string Jo
     public ReportAsset? ClientLogo { get; init; }
     public CompanyResponse? OurCompany {get; init;}
     public ReportAsset? OurCompanyLogo {get; init;}
+    public IReadOnlyList<ReportSharedLayout> SharedLayouts {get; init;} = [];
     [JsonIgnore] public IEnumerable<ReportAsset> Assets =>
         (HazardousAreaPlan is null ? Enumerable.Empty<ReportAsset>() : new[] {HazardousAreaPlan})
         .Concat(ClientLogo is null ? Enumerable.Empty<ReportAsset>() : new[] {ClientLogo})
         .Concat(OurCompanyLogo is null ? Enumerable.Empty<ReportAsset>() : new[] {OurCompanyLogo})
         .Concat(Areas.Where(a => a.Layout != null).Select(a => a.Layout!))
+        .Concat(Areas.SelectMany(a => a.Layouts).Select(a => a.Image))
+        .Concat(SharedLayouts.Select(a => a.Image))
         .Concat(Areas.SelectMany(a => a.Equipment).SelectMany(e => e.Inspections)
             .SelectMany(i => i.Photos.Concat(i.Findings.SelectMany(f => f.Photos)))).DistinctBy(a => a.Key);
 }
@@ -71,9 +76,9 @@ public sealed class ProjectReportData(SurveyDbContext db)
         var query = db.Projects.AsNoTracking();
         if (user.IsInRole("Admin")) return query;
         if (user.IsInRole("Manager")) return query.Where(p => p.CreatedByUserId == id || db.Users.Any(q => q.Id == p.AssignedQcId && q.ManagerId == id));
-        if (user.IsInRole("Qc")) return query.Where(p => p.AssignedQcId == id);
-        if (user.IsInRole("Surveyor")) return query.Where(p => p.AssignedSurveyorId == id);
-        if (user.IsInRole("Client")) return query.Where(p => p.AssignedClientId == id);
+        if (user.IsInRole("Qc")) return query.Where(p => p.AssignedQcId == id || p.AdditionalQcId == id);
+        if (user.IsInRole("Surveyor")) return query.Where(p => (p.AssignedSurveyorId == id || p.AdditionalSurveyorId == id));
+        if (user.IsInRole("Client")) return query.Where(p => (p.AssignedClientId == id || p.ClientAssignments.Any(a => a.IsActive && a.ClientUserId == id)));
         return query.Where(_ => false);
     }
 
@@ -103,6 +108,7 @@ public sealed class ProjectReportData(SurveyDbContext db)
         var templates = await db.ChecklistTemplates.AsNoTracking().Where(t => templateIds.Contains(t.Id)).ToDictionaryAsync(t => t.Id, ct);
         var areaIds = areas.Select(a => a.Id).ToArray();
         var layouts = await db.ProjectAreaPhotos.AsNoTracking().Where(p => areaIds.Contains(p.ProjectAreaId)).OrderBy(p => p.UploadedAt).ToListAsync(ct);
+        var commonLayouts = await db.Files.AsNoTracking().Where(f => f.ProjectId == id && f.Category == FileCategory.ProjectCommonLayout).OrderBy(f => f.UploadedAt).ToListAsync(ct);
         var userIds = sessions.Select(s => s.SurveyorId).Concat(reviews.Select(q => q.ReviewedByUserId))
             .Concat(new Guid?[] {project.AssignedSurveyorId, project.AssignedQcId, project.AssignedClientId}.Where(x => x.HasValue).Select(x => x!.Value)).Distinct().ToArray();
         var users = await db.Users.AsNoTracking().Where(u => userIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.DisplayName, ct);
@@ -126,16 +132,31 @@ public sealed class ProjectReportData(SurveyDbContext db)
         }
         var checkedNames = reviews.Select(q => Name(q.ReviewedByUserId)).Distinct().ToArray();
         var approvedNames = reviews.Where(q => q.Status == QcReviewStatus.Approved).Select(q => Name(q.ReviewedByUserId)).Distinct().ToArray();
+        var areaReports = areas.Select(area => {
+                var layout = layouts.FirstOrDefault(p => p.ProjectAreaId == area.Id && p.FilePath == area.LayoutImagePath) ?? layouts.FirstOrDefault(p => p.ProjectAreaId == area.Id && !StoredProjectPhoto.IsPdfFile(p.FilePath));
+                var areaEquipment = equipment.Where(e => e.AreaId == area.Id).ToArray();
+                var selectedKeys = areaEquipment.Select(e => e.LayoutImageKey).Where(k => k is not null).ToHashSet(StringComparer.Ordinal);
+                if (layout is not null) selectedKeys.Add($"area:{layout.Id}");
+                var areaLayouts = layouts.Where(p => p.ProjectAreaId == area.Id && !StoredProjectPhoto.IsPdfFile(p.FilePath) && selectedKeys.Contains($"area:{p.Id}"))
+                    .Select(p => new ReportAreaLayout($"area:{p.Id}", p.FileName, Asset("layout-area-" + p.Id, "image/" + Path.GetExtension(p.FilePath).TrimStart('.'), p.FilePath)))
+                    .DistinctBy(x => x.Key).ToArray();
+                return new ReportArea(area.AreaName, layout is null ? null : Asset("layout-area-" + layout.Id, "image/" + Path.GetExtension(layout.FilePath).TrimStart('.'), layout.FilePath),
+                    areaEquipment.Select(e => new ReportEquipment(e.SequenceNo, e.TagNumber, e.EquipmentCode, e.Type, e.XPercent, e.YPercent, e.CircuitId,
+                        e.Location, e.Manufacturer, e.ProtectionDetails, e.CertificateNumber, e.RfidTagUid,
+                        sessions.Where(s => s.AreaEquipmentId == e.Id).Select(Inspection).ToArray()) {Id = e.Id, LayoutImageKey = e.LayoutImageKey, AreaName = area.AreaName,
+                        InspectionStatus = QcWorkflowStatus.InspectionStatus(sessions.FirstOrDefault(s => s.AreaEquipmentId == e.Id)?.Status,
+                            reviews.FirstOrDefault(q => q.SurveySessionId == sessions.FirstOrDefault(s => s.AreaEquipmentId == e.Id)?.Id)?.Status).ToString()}).ToArray())
+                    {Id = area.Id, Layouts = areaLayouts};
+            }).ToArray();
+        var sharedLayouts = commonLayouts.Where(file => equipment.Any(e => e.LayoutImageKey == $"common:{file.Id}"))
+            .Select(file => new ReportSharedLayout($"common:{file.Id}", file.FileName,
+                Asset("layout-common-" + file.Id, file.ContentType, file.StorageKey),
+                areaReports.SelectMany(area => area.Equipment).Where(e => e.LayoutImageKey == $"common:{file.Id}").ToArray()))
+            .ToArray();
         return new(id, project.ProjectName, project.JobNo, project.VesselOrSiteName, project.Location, project.ClientName ?? Name(project.AssignedClientId), Name(project.AssignedSurveyorId),
             checkedNames.Length == 0 ? "-" : string.Join(", ", checkedNames), approvedNames.Length == 0 ? "-" : string.Join(", ", approvedNames), DateTimeOffset.UtcNow,
             project.HazardousAreaPlanPath is null ? null : Asset("plan", Path.GetExtension(project.HazardousAreaPlanPath).ToLowerInvariant() switch { ".pdf" => "application/pdf", ".png" => "image/png", _ => "image/jpeg" }, project.HazardousAreaPlanPath),
-            areas.Select(area => {
-                var layout = layouts.FirstOrDefault(p => p.ProjectAreaId == area.Id && p.FilePath == area.LayoutImagePath) ?? layouts.FirstOrDefault(p => p.ProjectAreaId == area.Id);
-                return new ReportArea(area.AreaName, layout is null ? null : Asset("layout-" + layout.Id, "image/" + Path.GetExtension(layout.FilePath).TrimStart('.'), layout.FilePath),
-                    equipment.Where(e => e.AreaId == area.Id).Select(e => new ReportEquipment(e.SequenceNo, e.TagNumber, e.EquipmentCode, e.Type, e.XPercent, e.YPercent, e.CircuitId,
-                        e.Location, e.Manufacturer, e.ProtectionDetails, e.CertificateNumber, e.RfidTagUid,
-                        sessions.Where(s => s.AreaEquipmentId == e.Id).Select(Inspection).ToArray()) {Id = e.Id, InspectionStatus = QcWorkflowStatus.InspectionStatus(sessions.FirstOrDefault(s => s.AreaEquipmentId == e.Id)?.Status, reviews.FirstOrDefault(q => q.SurveySessionId == sessions.FirstOrDefault(s => s.AreaEquipmentId == e.Id)?.Id)?.Status).ToString()}).ToArray()) {Id = area.Id};
-            }).ToArray()) {Revisions = revisions, UidNumber = project.UidNumber, DocumentNumber = project.DocumentNumber,
+            areaReports) {Revisions = revisions, SharedLayouts = sharedLayouts, UidNumber = project.UidNumber, DocumentNumber = project.DocumentNumber,
                 Revision = project.Revision, Description = project.Description, ClientName = project.ClientName,
                 ClientLogo = project.ClientLogoPath is null ? null : Asset("client-logo", Path.GetExtension(project.ClientLogoPath).Equals(".png", StringComparison.OrdinalIgnoreCase) ? "image/png" : "image/jpeg", project.ClientLogoPath),
                 OurCompany = project.OurCompany is null ? null : CompanyAssets.Response(project.OurCompany),

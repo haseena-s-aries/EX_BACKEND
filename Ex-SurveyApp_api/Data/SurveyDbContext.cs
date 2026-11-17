@@ -1,12 +1,18 @@
-using Ex_SurveyApp_api.Models;
+﻿using Ex_SurveyApp_api.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace Ex_SurveyApp_api.Data;
 
 public class SurveyDbContext(DbContextOptions<SurveyDbContext> options) : DbContext(options)
 {
+    public DbSet<RoleChangeRequest> RoleChangeRequests => Set<RoleChangeRequest>();
+    public DbSet<UserAccessNotification> UserAccessNotifications => Set<UserAccessNotification>();
     public DbSet<User> Users => Set<User>();
+    public DbSet<AccountActionToken> AccountActionTokens => Set<AccountActionToken>();
     public DbSet<RegistrationOtp> RegistrationOtps => Set<RegistrationOtp>();
+    public DbSet<ProjectReportWorkflow> ProjectReportWorkflows => Set<ProjectReportWorkflow>();
+    public DbSet<ReportWorkflowEvent> ReportWorkflowEvents => Set<ReportWorkflowEvent>();
+    public DbSet<ProjectClientAssignment> ProjectClientAssignments => Set<ProjectClientAssignment>();
     public DbSet<Project> Projects => Set<Project>();
     public DbSet<CompanyMaster> CompanyMasters => Set<CompanyMaster>();
     public DbSet<ProjectArea> ProjectAreas => Set<ProjectArea>();
@@ -19,6 +25,8 @@ public class SurveyDbContext(DbContextOptions<SurveyDbContext> options) : DbCont
     public DbSet<Equipment> Equipment => Set<Equipment>();
     public DbSet<ChecklistTemplate> ChecklistTemplates => Set<ChecklistTemplate>();
     public DbSet<ChecklistQuestion> ChecklistQuestions => Set<ChecklistQuestion>();
+    public DbSet<ProjectScheduleEntry> ProjectScheduleEntries => Set<ProjectScheduleEntry>();
+    public DbSet<ProjectDelayEmail> ProjectDelayEmails => Set<ProjectDelayEmail>();
     public DbSet<SurveySession> SurveySessions => Set<SurveySession>();
     public DbSet<SurveyAnswer> SurveyAnswers => Set<SurveyAnswer>();
     public DbSet<Finding> Findings => Set<Finding>();
@@ -71,18 +79,56 @@ public class SurveyDbContext(DbContextOptions<SurveyDbContext> options) : DbCont
 
     public DbSet<ReportClientRemark> ReportClientRemarks => Set<ReportClientRemark>();
 
-    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         // Record real updates for client activity without modifying technical workflow data.
         foreach (var entry in ChangeTracker.Entries<Finding>().Where(e => e.State == EntityState.Modified).ToArray())
             AuditLogs.Add(new AuditLog {EntityType = "Finding", EntityId = entry.Entity.Id, Action = entry.Entity.Status is FindingStatus.Closed or FindingStatus.Verified ? "Defect Closed" : "Defect Updated", Comments = entry.Entity.Status.ToString()});
         foreach (var entry in ChangeTracker.Entries<Project>().Where(e => e.State == EntityState.Modified && e.Property(p => p.Status).IsModified && e.Entity.Status == ProjectStatus.Completed).ToArray())
             AuditLogs.Add(new AuditLog {EntityType = "Project", EntityId = entry.Entity.Id, Action = "Survey Completed"});
-        return base.SaveChangesAsync(cancellationToken);
+        var added = ChangeTracker.Entries<AreaEquipment>().Where(e => e.State == EntityState.Added).Select(e => e.Entity).ToArray();
+        var deleted = ChangeTracker.Entries<AreaEquipment>().Where(e => e.State == EntityState.Deleted).Select(e => e.Entity).ToArray();
+        await using var sequenceTransaction = Database.IsSqlServer() && (added.Length + deleted.Length) > 0 && Database.CurrentTransaction is null ? await Database.BeginTransactionAsync(cancellationToken) : null;
+        {
+            foreach (var group in added.Concat(deleted).GroupBy(e => e.ProjectId).OrderBy(g => g.Key))
+            {
+                var resource = "EquipmentSequence:" + group.Key;
+                if (Database.IsSqlServer())
+                {
+                    await Database.ExecuteSqlInterpolatedAsync($"DECLARE @result int; EXEC @result=sys.sp_getapplock @Resource={resource}, @LockMode='Exclusive', @LockOwner='Transaction', @LockTimeout=15000; IF @result < 0 THROW 51000, 'Equipment numbering is busy. Please retry.', 1;", cancellationToken);
+                }
+                var maximum = await AreaEquipment.Where(e => e.ProjectId == group.Key).MaxAsync(e => (int?)e.SequenceNo, cancellationToken) ?? 0;
+                var history = await AuditLogs.Where(a => a.EntityType == "EquipmentSequence" && a.EntityId == group.Key).Select(a => a.Comments).ToListAsync(cancellationToken);
+                foreach (var value in history) if (int.TryParse(value, out var previous)) maximum = Math.Max(maximum, previous);
+                foreach (var item in added.Where(e=>e.ProjectId==group.Key).OrderBy(e=>e.CreatedAt).ThenBy(e=>e.Id)) item.SequenceNo = checked(++maximum);
+                AuditLogs.Add(new AuditLog {EntityType="EquipmentSequence", EntityId=group.Key, Action="Sequence Reserved", Comments=maximum.ToString(System.Globalization.CultureInfo.InvariantCulture)});
+            }
+            foreach (var group in added.Concat(deleted).GroupBy(e => e.AreaId).OrderBy(g => g.Key))
+            {
+                var resource = "EquipmentMarking:" + group.Key;
+                if (Database.IsSqlServer())
+                    await Database.ExecuteSqlInterpolatedAsync($"DECLARE @result int; EXEC @result=sys.sp_getapplock @Resource={resource}, @LockMode='Exclusive', @LockOwner='Transaction', @LockTimeout=15000; IF @result < 0 THROW 51000, 'Area marking numbering is busy. Please retry.', 1;", cancellationToken);
+                var maximum = await AreaEquipment.Where(e => e.AreaId == group.Key)
+                    .MaxAsync(e => e.MarkingNo, cancellationToken) ?? 0;
+                var history = await AuditLogs.Where(a => a.EntityType == "EquipmentMarking" && a.EntityId == group.Key)
+                    .Select(a => a.Comments).ToListAsync(cancellationToken);
+                foreach (var value in history)
+                    if (int.TryParse(value, out var previous)) maximum = Math.Max(maximum, previous);
+                foreach (var item in added.Where(e => e.AreaId == group.Key && !e.MarkingNo.HasValue)
+                             .OrderBy(e => e.CreatedAt).ThenBy(e => e.Id))
+                    item.MarkingNo = checked(++maximum);
+                AuditLogs.Add(new AuditLog {EntityType="EquipmentMarking", EntityId=group.Key,
+                    Action="Marking Reserved", Comments=maximum.ToString(System.Globalization.CultureInfo.InvariantCulture)});
+            }
+            var result = await base.SaveChangesAsync(cancellationToken);
+            if (sequenceTransaction is not null) await sequenceTransaction.CommitAsync(cancellationToken);
+            return result;
+        }
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<FieldworkReceipt>(e => { e.HasKey(x => new {x.UserId, x.OperationId}); e.Property(x => x.RequestHash).HasMaxLength(64); e.HasIndex(x => x.ProjectId); });
         var checklistCatalog = modelBuilder.Entity<EquipmentChecklistCatalog>();
         checklistCatalog.Property(x => x.Id).ValueGeneratedNever();
         checklistCatalog.Property(x => x.Version).IsConcurrencyToken();
@@ -145,8 +191,36 @@ public class SurveyDbContext(DbContextOptions<SurveyDbContext> options) : DbCont
         // Optional context IDs are validated against the assigned project by the remarks API.
         // No extra cascades are introduced into existing Equipment/Finding/Report relationships.
         modelBuilder.Entity<User>().HasIndex(x => x.Email).IsUnique();
+        modelBuilder.Entity<User>().Property(x => x.PhoneNumber).HasMaxLength(40);
+        modelBuilder.Entity<User>().Property(x => x.Designation).HasMaxLength(150);
+        modelBuilder.Entity<User>().Property(x => x.ProfilePhotoPath).HasMaxLength(500);
+        modelBuilder.Entity<User>().Property(x => x.AuthVersion).HasDefaultValue(0).IsConcurrencyToken();
+        modelBuilder.Entity<AccountActionToken>(b => {
+            b.Property(x => x.Purpose).HasMaxLength(30);
+            b.Property(x => x.TokenHash).HasMaxLength(64).IsFixedLength();
+            b.Property(x => x.NewEmail).HasMaxLength(320);
+            b.Property(x => x.ConsumedAt).IsConcurrencyToken();
+            b.HasIndex(x => x.TokenHash).IsUnique();
+            b.HasIndex(x => new {x.UserId, x.Purpose, x.CreatedAt});
+            b.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
         modelBuilder.Entity<User>().HasOne(x => x.Manager).WithMany()
             .HasForeignKey(x => x.ManagerId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<User>().Property(u => u.ApprovalRejectionReason).HasMaxLength(2000);
+        modelBuilder.Entity<User>().Property(u => u.ApprovalStatus).IsConcurrencyToken();
+        modelBuilder.Entity<User>().Property(u => u.Role).IsConcurrencyToken();
+        modelBuilder.Entity<RoleChangeRequest>().Property(r => r.Reason).HasMaxLength(2000);
+        modelBuilder.Entity<RoleChangeRequest>().Property(r => r.RejectionReason).HasMaxLength(2000);
+        modelBuilder.Entity<RoleChangeRequest>().Property(r => r.Status).IsConcurrencyToken();
+        modelBuilder.Entity<RoleChangeRequest>().HasIndex(r => r.UserId).IsUnique().HasFilter("[Status] = 0");
+        modelBuilder.Entity<RoleChangeRequest>().HasOne<User>().WithMany().HasForeignKey(r => r.UserId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<RoleChangeRequest>().HasOne<User>().WithMany().HasForeignKey(r => r.ReviewedBy).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<UserAccessNotification>().Property(n => n.EventKey).HasMaxLength(150);
+        modelBuilder.Entity<UserAccessNotification>().Property(n => n.Kind).HasMaxLength(30);
+        modelBuilder.Entity<UserAccessNotification>().Property(n => n.Title).HasMaxLength(200);
+        modelBuilder.Entity<UserAccessNotification>().Property(n => n.Message).HasMaxLength(2500);
+        modelBuilder.Entity<UserAccessNotification>().HasIndex(n => new {n.RecipientId, n.EventKey}).IsUnique();
+        modelBuilder.Entity<UserAccessNotification>().HasOne<User>().WithMany().HasForeignKey(n => n.RecipientId).OnDelete(DeleteBehavior.Cascade);
         modelBuilder.Entity<AuditLog>().Property(x => x.Comments).HasMaxLength(4000);
         modelBuilder.Entity<AuditLog>().HasIndex(x => new { x.EntityId, x.OccurredAt });
         var scanEvent = modelBuilder.Entity<EquipmentScanEvent>();
@@ -172,6 +246,23 @@ public class SurveyDbContext(DbContextOptions<SurveyDbContext> options) : DbCont
         modelBuilder.Entity<RegistrationOtp>().Property(x => x.VerificationAttempts).HasDefaultValue(0);
         modelBuilder.Entity<RegistrationOtp>().Property(x => x.ConcurrencyVersion).HasDefaultValue(0).IsConcurrencyToken();
         modelBuilder.Entity<Project>().Property(x => x.ProjectName).HasMaxLength(200);
+        modelBuilder.Entity<Project>().Property(x => x.TargetDate).IsConcurrencyToken();
+        modelBuilder.Entity<ProjectScheduleEntry>(b =>
+        {
+            b.Property(x => x.Kind).HasMaxLength(24);
+            b.Property(x => x.EventKey).HasMaxLength(100);
+            b.Property(x => x.DelayReason).HasMaxLength(2000);
+            b.HasIndex(x => new { x.ProjectId, x.EventKey }).IsUnique();
+            b.HasIndex(x => new { x.ProjectId, x.Kind, x.OccurredAt });
+            b.HasOne<Project>().WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<ProjectDelayEmail>(b =>
+        {
+            b.Property(x => x.Status).HasMaxLength(24);
+            b.HasIndex(x => new { x.ScheduleEntryId, x.RecipientId }).IsUnique();
+            b.HasIndex(x => x.Status);
+            b.HasOne<ProjectScheduleEntry>().WithMany().HasForeignKey(x => x.ScheduleEntryId).OnDelete(DeleteBehavior.Cascade);
+        });
         modelBuilder.Entity<Project>().Property(x => x.Sector).HasMaxLength(150);
         modelBuilder.Entity<Project>().Property(x => x.JobNo).HasMaxLength(100);
         modelBuilder.Entity<Project>().Property(x => x.Location).HasMaxLength(300);
@@ -193,9 +284,19 @@ public class SurveyDbContext(DbContextOptions<SurveyDbContext> options) : DbCont
         company.HasIndex(c => c.DisplayName).IsUnique();
         company.HasData(Ex_SurveyApp_api.Services.CompanyAssets.Seed());
         modelBuilder.Entity<Project>().HasOne(p => p.OurCompany).WithMany().HasForeignKey(p => p.OurCompanyId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<Project>().HasOne<User>().WithMany().HasForeignKey(x => x.AdditionalSurveyorId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<Project>().Property(x => x.AssignedSurveyorId).IsConcurrencyToken();
+        modelBuilder.Entity<Project>().Property(x => x.AdditionalSurveyorId).IsConcurrencyToken();
         modelBuilder.Entity<Project>().HasOne<User>().WithMany().HasForeignKey(x => x.AssignedSurveyorId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<Project>().HasOne<User>().WithMany().HasForeignKey(x => x.AdditionalQcId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<Project>().Property(x => x.AdditionalQcId).IsConcurrencyToken();
+        modelBuilder.Entity<Project>().Property(x => x.AssignedQcId).IsConcurrencyToken();
         modelBuilder.Entity<Project>().HasOne(x => x.AssignedQc).WithMany().HasForeignKey(x => x.AssignedQcId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<Project>().HasOne<User>().WithMany().HasForeignKey(x => x.AssignedClientId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<ProjectClientAssignment>().HasKey(x => new { x.ProjectId, x.ClientUserId });
+        modelBuilder.Entity<ProjectClientAssignment>().HasOne(x => x.Project).WithMany(p => p.ClientAssignments).HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<ProjectClientAssignment>().HasOne(x => x.ClientUser).WithMany().HasForeignKey(x => x.ClientUserId).OnDelete(DeleteBehavior.Restrict);
+
         modelBuilder.Entity<Project>().HasOne<User>().WithMany().HasForeignKey(x => x.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<ProjectArea>().Property(x => x.AreaName).HasMaxLength(200);
         modelBuilder.Entity<ProjectArea>().Property(x => x.LayoutImagePath).HasMaxLength(500);
@@ -207,7 +308,9 @@ public class SurveyDbContext(DbContextOptions<SurveyDbContext> options) : DbCont
         modelBuilder.Entity<ProjectAreaPhoto>().HasOne<User>().WithMany().HasForeignKey(x => x.UploadedByUserId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<AreaEquipment>().Property(x => x.XPercent).HasPrecision(5, 2);
         modelBuilder.Entity<AreaEquipment>().Property(x => x.YPercent).HasPrecision(5, 2);
+        modelBuilder.Entity<AreaEquipment>().Property(x => x.MarkingNo);
         modelBuilder.Entity<AreaEquipment>().Property(x => x.IsPlacedOnLayout).HasDefaultValue(true);
+        modelBuilder.Entity<AreaEquipment>().Property(x => x.LayoutImageKey).HasMaxLength(80);
         modelBuilder.Entity<AreaEquipment>().Property(x => x.TagNumber).HasMaxLength(100);
         modelBuilder.Entity<AreaEquipment>().Property(x => x.EquipmentName).HasMaxLength(250);
         modelBuilder.Entity<AreaEquipment>().Property(x => x.EquipmentCode).HasMaxLength(100);
@@ -252,6 +355,8 @@ public class SurveyDbContext(DbContextOptions<SurveyDbContext> options) : DbCont
         modelBuilder.Entity<ChecklistTemplate>().HasOne<User>().WithMany().HasForeignKey(x => x.SubmittedByUserId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<ChecklistTemplate>().HasOne<User>().WithMany().HasForeignKey(x => x.ApprovedByUserId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<AreaEquipment>().HasIndex(x => new { x.AreaId, x.SequenceNo }).IsUnique();
+        modelBuilder.Entity<AreaEquipment>().HasIndex(x => new { x.AreaId, x.MarkingNo }).IsUnique()
+            .HasFilter("[MarkingNo] IS NOT NULL");
         modelBuilder.Entity<AreaEquipment>().HasIndex(x => new { x.AreaId, x.TagNumber }).IsUnique();
         modelBuilder.Entity<AreaEquipment>().HasIndex(x => x.RfidTagUid).IsUnique()
             .HasFilter("[RfidTagUid] IS NOT NULL");
@@ -296,6 +401,7 @@ public class SurveyDbContext(DbContextOptions<SurveyDbContext> options) : DbCont
         modelBuilder.Entity<SurveySession>().HasOne<User>().WithMany().HasForeignKey(x => x.SurveyorId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<SurveySession>().HasOne<ChecklistTemplate>().WithMany().HasForeignKey(x => x.ChecklistTemplateId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<SurveySession>().HasIndex(x => x.AreaEquipmentId).IsUnique().HasFilter("[AreaEquipmentId] IS NOT NULL");
+        modelBuilder.Entity<SurveySession>().Property(x => x.UpdatedAt).IsConcurrencyToken();
         modelBuilder.Entity<SurveySession>().Property(x => x.InspectorName).HasMaxLength(200);
         modelBuilder.Entity<SurveySession>().Property(x => x.SurveyorRemarks).HasMaxLength(2000);
         modelBuilder.Entity<SurveyAnswer>().HasOne<SurveySession>().WithMany().HasForeignKey(x => x.SurveySessionId);
@@ -400,10 +506,28 @@ public class SurveyDbContext(DbContextOptions<SurveyDbContext> options) : DbCont
         modelBuilder.Entity<InspectionTask>().Property(x => x.IsolationPrerequisites).HasMaxLength(2000);
         modelBuilder.Entity<InspectionTask>().Property(x => x.CarryForwardReason).HasMaxLength(1000);
         modelBuilder.Entity<InspectionTask>().HasIndex(x => new { x.WorkPackageId, x.RouteOrder });
+        var workflow = modelBuilder.Entity<ProjectReportWorkflow>();
+        workflow.HasKey(x => x.ProjectId);
+        workflow.Property(x => x.Status).HasMaxLength(20).HasDefaultValue("Ongoing").IsRequired();
+        workflow.Property(x => x.HoldReason).HasMaxLength(2000);
+        workflow.Property(x => x.Version).IsConcurrencyToken();
+        workflow.HasOne<Project>().WithOne().HasForeignKey<ProjectReportWorkflow>(x => x.ProjectId).OnDelete(DeleteBehavior.Cascade);
+        workflow.HasOne<GeneratedReportArtifact>().WithMany().HasForeignKey(x => x.SubmittedArtifactId).OnDelete(DeleteBehavior.NoAction);
+        var reportEvent = modelBuilder.Entity<ReportWorkflowEvent>();
+        reportEvent.HasKey(x => x.Id);
+        reportEvent.Property(x => x.FromStatus).HasMaxLength(20).IsRequired();
+        reportEvent.Property(x => x.ToStatus).HasMaxLength(20).IsRequired();
+        reportEvent.Property(x => x.Reason).HasMaxLength(2000);
+        reportEvent.HasIndex(x => new { x.ProjectId, x.Version }).IsUnique();
+        reportEvent.HasOne<Project>().WithMany().HasForeignKey(x => x.ProjectId).OnDelete(DeleteBehavior.Cascade);
+        reportEvent.HasOne<GeneratedReportArtifact>().WithMany().HasForeignKey(x => x.ArtifactId).OnDelete(DeleteBehavior.NoAction);
         var artifact=modelBuilder.Entity<GeneratedReportArtifact>();
         artifact.ToTable("GeneratedReportArtifacts"); artifact.HasKey(x=>x.Id);
         artifact.Property(x=>x.ReportType).HasMaxLength(40).IsRequired();
         artifact.Property(x=>x.ReportNumber).HasMaxLength(160).IsRequired();
+        artifact.Property(x => x.UidNumber).HasMaxLength(100);
+        artifact.Property(x => x.DocumentNumber).HasMaxLength(200);
+        artifact.Property(x => x.DocumentRevision).HasMaxLength(100);
         artifact.Property(x=>x.FileName).HasMaxLength(255).IsRequired();
         artifact.Property(x=>x.ContentType).HasMaxLength(150).IsRequired();
         artifact.Property(x=>x.StorageKey).HasMaxLength(1000).IsRequired();

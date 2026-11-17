@@ -9,15 +9,24 @@ public class ProjectPhotoStorageSettings
     public int MaxFilesPerRequest { get; set; } = 20;
 }
 
-public record StoredProjectPhoto(string OriginalFileName, string RelativePath);
+public record StoredProjectPhoto(string OriginalFileName, string RelativePath)
+{
+    public bool IsPdf => IsPdfFile(RelativePath);
+    public static bool IsPdfFile(string? path) => path?.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase) == true;
+}
 public record StoredProjectPhotoContent(Stream Stream, string ContentType);
 
 public interface IProjectPhotoStorage
 {
+    Task<StoredProjectPhoto> SaveProfilePhotoAsync(IFormFile file, Guid userId, CancellationToken ct)
+        => SaveClientLogoAsync(file, userId, ct);
     Task<StoredProjectPhoto> SaveReferenceDocumentAsync(IFormFile file, Guid projectId, Guid documentId, CancellationToken cancellationToken)
         => SaveHazardousAreaPlanAsync(file, projectId, cancellationToken);
     Task<StoredProjectPhoto> SaveClientLogoAsync(IFormFile file, Guid projectId, CancellationToken cancellationToken)
         => SaveAsync(file, projectId, Guid.Empty, cancellationToken);
+    Task<StoredProjectPhoto> SaveCommonLayoutAsync(IFormFile file, Guid projectId, CancellationToken ct)
+        => SaveAsync(file, projectId, Guid.Empty, ct);
+
     Task<StoredProjectPhoto> SaveHazardousAreaPlanAsync(IFormFile file, Guid projectId,
         CancellationToken cancellationToken);
     int MaxFilesPerRequest { get; }
@@ -34,7 +43,7 @@ public class ProjectPhotoValidationException(string message) : Exception(message
 public class ProjectPhotoStorage : IProjectPhotoStorage
 {
     private static readonly HashSet<string> AllowedExtensions =
-        new(StringComparer.OrdinalIgnoreCase) { ".jpg", ".jpeg", ".png", ".webp" };
+        new(StringComparer.OrdinalIgnoreCase) { ".jpg", ".jpeg", ".png", ".webp", ".pdf" };
 
     private readonly ProjectPhotoStorageSettings settings;
     private readonly string rootPath;
@@ -50,9 +59,14 @@ public class ProjectPhotoStorage : IProjectPhotoStorage
     }
 
     public int MaxFilesPerRequest => settings.MaxFilesPerRequest;
+    public Task<StoredProjectPhoto> SaveProfilePhotoAsync(IFormFile file, Guid userId, CancellationToken ct)
+        => SaveToDirectory(file, Path.Combine("profile-photos", userId.ToString("N")), ct, isClientLogo: true);
 
     public Task<StoredProjectPhoto> SaveClientLogoAsync(IFormFile file, Guid projectId, CancellationToken cancellationToken)
         => SaveToDirectory(file, Path.Combine("client-logos", projectId.ToString("N")), cancellationToken, isClientLogo: true);
+
+    public Task<StoredProjectPhoto> SaveCommonLayoutAsync(IFormFile file, Guid projectId, CancellationToken ct)
+        => SaveToDirectory(file, Path.Combine("common-layouts", projectId.ToString("N")), ct);
 
     public Task<StoredProjectPhoto> SaveHazardousAreaPlanAsync(
         IFormFile file, Guid projectId, CancellationToken cancellationToken)
@@ -90,7 +104,8 @@ public class ProjectPhotoStorage : IProjectPhotoStorage
             !(file.ContentType.Equals(extension == ".png" ? "image/png" : "image/jpeg", StringComparison.OrdinalIgnoreCase) ||
               file.ContentType.Equals("application/octet-stream", StringComparison.OrdinalIgnoreCase))))
             throw new ProjectPhotoValidationException("Only JPG, JPEG and PNG images are allowed.");
-        var hasSupportedContentType = file.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) ||
+        var hasSupportedContentType = (extension == ".pdf" ? file.ContentType.Equals("application/pdf", StringComparison.OrdinalIgnoreCase) :
+            file.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)) ||
                                       file.ContentType.Equals("application/octet-stream", StringComparison.OrdinalIgnoreCase);
         if (isReferenceDocument)
         {
@@ -107,7 +122,7 @@ public class ProjectPhotoStorage : IProjectPhotoStorage
                 throw new ProjectPhotoValidationException("Only JPG, JPEG, PNG and PDF files are allowed.");
         }
         else if (!AllowedExtensions.Contains(extension) || !hasSupportedContentType)
-            throw new ProjectPhotoValidationException("Only JPG, PNG, and WebP images are allowed.");
+            throw new ProjectPhotoValidationException("Only PDF, JPG, JPEG, PNG and WebP files are allowed.");
 
         var directory = Path.Combine(rootPath, relativeDirectory);
         Directory.CreateDirectory(directory);
@@ -117,12 +132,12 @@ public class ProjectPhotoStorage : IProjectPhotoStorage
         await using var input = file.OpenReadStream();
         var header = new byte[12];
         var bytesRead = await input.ReadAtLeastAsync(header.AsMemory(), header.Length, throwOnEndOfStream: false, cancellationToken);
-        var validContent = (isPlan || isReferenceDocument) && extension == ".pdf"
+        var validContent = extension == ".pdf"
             ? bytesRead >= 5 && header.AsSpan(0, 5).SequenceEqual("%PDF-"u8)
             : HasValidImageSignature(header.AsSpan(0, bytesRead), extension);
         if (!validContent)
         {
-            if (isPlan || isReferenceDocument) throw new ProjectPhotoValidationException("The file content does not match an allowed PDF or image type.");
+            if (isPlan || isReferenceDocument || extension == ".pdf") throw new ProjectPhotoValidationException("The file content does not match an allowed PDF or image type.");
             throw new ProjectPhotoValidationException($"Image '{Path.GetFileName(file.FileName)}' has invalid file content.");
         }
 

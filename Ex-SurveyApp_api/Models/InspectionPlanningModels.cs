@@ -116,6 +116,9 @@ public sealed class GeneratedReportArtifact
     public Guid LinkedEntityId { get; set; }
     public string ReportType { get; set; } = "";
     public string ReportNumber { get; set; } = "";
+    public string? UidNumber { get; set; }
+    public string? DocumentNumber { get; set; }
+    public string? DocumentRevision { get; set; }
     public int Revision { get; set; }
     public string FileName { get; set; } = "";
     public string ContentType { get; set; } = "application/octet-stream";

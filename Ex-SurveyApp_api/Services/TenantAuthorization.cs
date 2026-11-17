@@ -203,7 +203,7 @@ public sealed class TenantScopeResolver(SurveyDbContext db) : ITenantScopeResolv
 
         if (kind == TenantResourceKind.ClientDashboard)
         {
-            var projects = await db.Projects.AsNoTracking().Where(x => x.AssignedClientId == resourceId)
+            var projects = await db.Projects.AsNoTracking().Where(x => (x.AssignedClientId == resourceId || x.ClientAssignments.Any(a => a.IsActive && a.ClientUserId == resourceId)))
                 .Select(x => x.Id).ToListAsync(cancellationToken);
             if (projects.Count == 0) return (null, "UnmappedResource");
             var dashboardBindings = await db.TenantProjectBindings.AsNoTracking().Where(x => projects.Contains(x.ProjectId))
