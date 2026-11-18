@@ -39,6 +39,7 @@ if (args.Contains("--otp-sql-checks")) { await OtpSqlChecks.Run(); return; }
 if (args.Contains("--endpoint-scope-checks")) { EndpointScopeChecks.Run(); return; }
 if (args.Contains("--inspection-activity-checks")) { await InspectionActivityChecks.Run(); return; }
 if (args.Contains("--offline-inspection-checks")) { await OfflineInspectionChecks.Run(); return; }
+if (args.Contains("--fieldwork-file-checks")) { await FieldworkFileTransactionChecks.Run(); return; }
 if (args.Contains("--equipment-reference-document-checks")) { await EquipmentReferenceDocumentChecks.Run(); return; }
 if (args.Contains("--equipment-identification-checks")) { await EquipmentIdentificationChecks.Run(); return; }
 if (args.Contains("--inspection-planning-checks")) { InspectionPlanningChecks.Run(); return; }

@@ -130,6 +130,14 @@ public partial class DefectsController
             if (saved is not null) await storage.DeleteAsync(saved.RelativePath, CancellationToken.None);
             throw;
         }
+        var fieldworkFiles = FieldworkFileTransaction.For(HttpContext);
+        if (fieldworkFiles is not null)
+        {
+            // Browser fieldwork: the outer transaction may still roll back, so keep the replaced photo until it commits.
+            if (saved is not null) fieldworkFiles.DeleteIfRolledBack(saved.RelativePath);
+            foreach (var file in existing) fieldworkFiles.DeleteAfterCommit(file.StorageKey);
+            return NoContent();
+        }
         if (transaction is not null) await transaction.CommitAsync(ct);
         foreach (var file in existing) await storage.DeleteAsync(file.StorageKey, CancellationToken.None);
         return NoContent();
