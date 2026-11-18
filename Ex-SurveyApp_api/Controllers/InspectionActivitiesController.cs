@@ -258,6 +258,7 @@ public sealed partial class InspectionActivitiesController(SurveyDbContext db, I
             activity.LastModifiedByUserId = ActorId;
             if(idempotencyKey is not null&&contentHash is not null)db.OfflinePhotoSyncReceipts.Add(new OfflinePhotoSyncReceipt{UserId=ActorId,IdempotencyKey=idempotencyKey,ContentHash=contentHash,ActivityId=activityId,CheckpointResponseRevisionId=checkpointResponseRevisionId,EvidenceId=evidence.Id});
             await db.SaveChangesAsync(ct);
+            FieldworkFileTransaction.For(HttpContext)?.DeleteIfRolledBack(stored.RelativePath);
             return Ok(new { evidence.Id, evidence.InspectionActivityId, evidence.AreaEquipmentId, evidence.CheckpointResponseRevisionId, evidence.Role, evidence.Caption, evidence.AddedAt, file.FileName, file.ContentType, Url = $"/api/v1/inspection-activities/{activityId:D}/photos/{evidence.Id:D}" });
         }
         catch (DbUpdateConcurrencyException)

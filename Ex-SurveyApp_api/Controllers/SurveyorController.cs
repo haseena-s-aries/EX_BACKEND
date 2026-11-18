@@ -682,6 +682,8 @@ public class SurveyorController(
             db.AuditLogs.Add(new AuditLog { EntityType = "AreaEquipment", EntityId = equipmentId,
                 ActorId = CurrentUserId, Action = "Equipment Photos Added", Comments = $"{rows.Count} {role} photo(s) uploaded." });
             await db.SaveChangesAsync(cancellationToken);
+            if (FieldworkFileTransaction.For(HttpContext) is { } fieldworkFiles)
+                foreach (var path in storedPaths) fieldworkFiles.DeleteIfRolledBack(path);
         }
         catch (ProjectPhotoValidationException ex)
         {

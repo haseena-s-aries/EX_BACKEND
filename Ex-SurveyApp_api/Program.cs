@@ -28,6 +28,7 @@ builder.Logging.AddConsole();
 // Add services to the container.
 
 builder.Services.AddScoped<FieldworkMutationFilter>();
+builder.Services.AddScoped<FieldworkFileTransaction>();
 builder.Services.AddControllers(o => o.Filters.AddService<FieldworkMutationFilter>()).AddJsonOptions(options =>
     options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: false)));
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle

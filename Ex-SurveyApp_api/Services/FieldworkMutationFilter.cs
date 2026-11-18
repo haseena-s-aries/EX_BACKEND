@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore;
 namespace Ex_SurveyApp_api.Services;
 
 /// <summary>Opt-in, atomic replay protection for the existing fieldwork endpoints only.</summary>
-public sealed class FieldworkMutationFilter(SurveyDbContext db) : IAsyncResourceFilter
+public sealed class FieldworkMutationFilter(SurveyDbContext db, FieldworkFileTransaction files) : IAsyncResourceFilter
 {
     private static readonly HashSet<string> Allowed = [
         "Surveyor.CreateEquipment", "Surveyor.UpdateEquipment", "Surveyor.UploadEquipmentPhotos",
@@ -111,6 +111,8 @@ public sealed class FieldworkMutationFilter(SurveyDbContext db) : IAsyncResource
         var originalBody = http.Response.Body;
         await using var buffer = new MemoryStream();
         http.Response.Body = buffer;
+        var committed = false;
+        files.Begin();
         try
         {
             var executed = await next();
@@ -140,12 +142,18 @@ public sealed class FieldworkMutationFilter(SurveyDbContext db) : IAsyncResource
                     ResponseJson = responseJson});
                 await db.SaveChangesAsync(ct);
                 await tx.CommitAsync(ct);
+                committed = true;
             }
             else await tx.RollbackAsync(ct);
             // A lost response is safe: the committed receipt is replayed on the next attempt.
             buffer.Position = 0;
             await buffer.CopyToAsync(originalBody, ct);
         }
-        finally { http.Response.Body = originalBody; }
+        finally
+        {
+            http.Response.Body = originalBody;
+            // Replaced files are deleted only after commit; new files are removed if nothing committed.
+            await files.CompleteAsync(committed);
+        }
     }
 }
