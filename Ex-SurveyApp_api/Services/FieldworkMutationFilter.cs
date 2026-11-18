@@ -19,6 +19,7 @@ public sealed class FieldworkMutationFilter(SurveyDbContext db) : IAsyncResource
         "InspectionActivities.OpenCategoryChecklist", "InspectionActivities.StartForEquipment",
         "InspectionActivities.SaveCheckpoint", "InspectionActivities.SaveEquipmentComments",
         "InspectionActivities.UploadPhoto", "InspectionActivities.Submit", "InspectionActivities.AddFinding",
+        "InspectionActivities.SaveCategorySelection",
         "Defects.SaveRegisterRow", "Defects.SetRegisterPhoto"];
 
     public async Task OnResourceExecutionAsync(ResourceExecutingContext context, ResourceExecutionDelegate next)
@@ -77,11 +78,26 @@ public sealed class FieldworkMutationFilter(SurveyDbContext db) : IAsyncResource
             return;
         }
 
-        string? kind = action == "Surveyor.UpdateEquipment" ? "equipment" : action == "Defects.SaveRegisterRow" ? "defect" : null;
-        var idKey = kind == "equipment" ? "equipmentId" : "findingId";
-        if (kind != null && Guid.TryParse(route.GetValueOrDefault(idKey)?.ToString(), out var entityId))
+        string? kind = action switch
+        {
+            "Surveyor.UpdateEquipment" => "equipment",
+            "Defects.SaveRegisterRow" => "defect",
+            "InspectionActivities.SaveCategorySelection" => "checklist",
+            _ => null
+        };
+        var entityId = Guid.Empty;
+        if (kind == "checklist")
+        {
+            // Browser fieldwork only edits equipment-specific checklists; project-wide selections stay Admin-only and online.
+            if (!Guid.TryParse(request.Query["equipmentId"], out entityId) || entityId == Guid.Empty)
+            { context.Result = new BadRequestObjectResult(new {error = "Checklist synchronization requires an equipment ID."}); return; }
+        }
+        else if (kind != null && !Guid.TryParse(route.GetValueOrDefault(kind == "equipment" ? "equipmentId" : "findingId")?.ToString(), out entityId))
+            kind = null;
+        if (kind != null)
         {
             var entity = await FieldworkAccess.Entity(db, kind, entityId, projectId, ct);
+            if (kind == "checklist" && entity == null) { context.Result = new ForbidResult(); return; }
             var version = entity == null ? "new" : FieldworkAccess.Version(entity);
             if (request.Headers["X-Fieldwork-Version"] != version)
             { context.Result = new ConflictObjectResult(new {error = "The server record changed. Review both versions before retrying.", version, server = entity}); return; }
@@ -108,8 +124,7 @@ public sealed class FieldworkMutationFilter(SurveyDbContext db) : IAsyncResource
                     Guid.TryParse(returnedId.GetString(), out savedActivityId);
                 var activityVersion = savedActivityId == Guid.Empty ? null : await db.InspectionActivities.AsNoTracking()
                     .Where(a => a.Id == savedActivityId).Select(a => a.RowVersion).SingleOrDefaultAsync(ct);
-                object? savedEntity = kind == null ? null : await FieldworkAccess.Entity(db, kind,
-                    Guid.Parse(route[idKey]!.ToString()!), projectId, ct);
+                object? savedEntity = kind == null ? null : await FieldworkAccess.Entity(db, kind, entityId, projectId, ct);
                 if (action == "Surveyor.CreateEquipment" && body is {ValueKind: JsonValueKind.Object} eb && eb.TryGetProperty("id", out var eid))
                     savedEntity = await FieldworkAccess.Entity(db, "equipment", eid.GetGuid(), projectId, ct);
                 var responseJson = JsonSerializer.Serialize(new {result = body,

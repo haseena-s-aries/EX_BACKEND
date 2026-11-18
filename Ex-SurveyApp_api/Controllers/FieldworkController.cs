@@ -19,10 +19,18 @@ public sealed class FieldworkController(SurveyDbContext db) : ControllerBase
     public async Task<IActionResult> Record(Guid projectId, string kind, Guid id, CancellationToken ct)
     {
         if (!await FieldworkAccess.Projects(db, User).AnyAsync(p => p.Id == projectId, ct)) return Forbid();
-        if (kind is not ("equipment" or "defect" or "activity")) return BadRequest();
+        // "checklist" ids are equipment ids: the equipment-specific checklist selection is the record.
+        if (kind is not ("equipment" or "defect" or "activity" or "checklist")) return BadRequest();
         var entity = await FieldworkAccess.Entity(db, kind, id, projectId, ct);
         return entity is null ? NotFound() : Ok(new {server = entity, version = FieldworkAccess.Version(entity)});
     }
+
+    /// <summary>Pre-sync revalidation: the caller is still an approved Surveyor assigned to this project.</summary>
+    [HttpGet("projects/{projectId:guid}/access")]
+    public async Task<IActionResult> Access(Guid projectId, CancellationToken ct) =>
+        await FieldworkAccess.Projects(db, User).AnyAsync(p => p.Id == projectId, ct)
+            ? Ok(new {projectId, assigned = true, serverTime = DateTimeOffset.UtcNow})
+            : StatusCode(StatusCodes.Status403Forbidden, new {error = "Project assignment has changed. Local work is retained for authorized resolution."});
 
     [HttpGet("projects/{projectId:guid}/versions")]
     public async Task<IActionResult> Versions(Guid projectId, CancellationToken ct)
