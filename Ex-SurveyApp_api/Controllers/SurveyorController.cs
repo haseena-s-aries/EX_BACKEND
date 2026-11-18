@@ -1132,6 +1132,8 @@ public class SurveyorController(
             join review in db.QcReviews.AsNoTracking()
                 on inspection.Id equals review.SurveySessionId into reviewGroup
             from review in reviewGroup.DefaultIfEmpty()
+            // Order on entity columns before projecting: EF cannot translate ordering on the projected record.
+            orderby inspection.UpdatedAt descending, inspection.Id descending
             select new InspectionInfo(
                 inspection.Id,
                 review != null && review.Status == QcReviewStatus.Approved || inspection.Status == SurveyStatus.Approved
@@ -1145,7 +1147,6 @@ public class SurveyorController(
                 review == null ? null : review.Comments,
                 review == null ? null : review.Severity,
                 inspection.UpdatedAt))
-            .OrderByDescending(x => x.UpdatedAt).ThenByDescending(x => x.InspectionId)
             .FirstOrDefaultAsync(cancellationToken);
         var activity = await (
             from current in db.InspectionActivities.AsNoTracking()
